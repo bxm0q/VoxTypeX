@@ -60,7 +60,7 @@ class SettingsWindow(QDialog):
         layout.setSpacing(12)
         layout.addWidget(
             QLabel(
-                "Зажмите PTT → говорите → отпустите. Esc — отмена.\nПока настройки открыты, запись приостановлена."
+                "Запись идёт, пока зажата клавиша PTT. Esc — отмена.\nПри открытых настройках запись приостановлена."
             )
         )
         form = QFormLayout()

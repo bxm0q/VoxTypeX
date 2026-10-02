@@ -29,7 +29,7 @@ runtime_packages = (
     "cffi",
 )
 notices = [
-    "VoxTypeX 0.1.0 — third-party components",
+    "VoxTypeX 0.1.1 — third-party components",
     "License texts and metadata are preserved in _internal/*.dist-info.",
     "Qt/PySide DLLs are dynamically linked and remain separate in this onedir distribution.",
     "Upstream Qt/PySide source: https://code.qt.io/cgit/pyside/pyside-setup.git/",
@@ -58,7 +58,10 @@ def archive(path, files, base):
     path.with_suffix(path.suffix + ".sha256").write_text(f"{digest}  {path.name}\n", encoding="ascii")
 
 
-archive(DIST / "VoxTypeX-0.1.0-win-x64.zip", [p for p in APP.rglob("*") if p.is_file()], DIST)
+application_files = [APP / name for name in ("VoxTypeX.exe", "README.md", "THIRD_PARTY_NOTICES.txt")]
+application_files += [APP / "docs" / name for name in ("MANUAL_SMOKE_TEST.md", "SETTINGS.md")]
+application_files += [p for p in (APP / "_internal").rglob("*") if p.is_file()]
+archive(DIST / "VoxTypeX-0.1.1-win-x64.zip", application_files, DIST)
 source_files = [
     ROOT / name for name in ("README.md", "pyproject.toml", ".gitignore", ".gitattributes", "requirements-build.lock")
 ]
@@ -70,7 +73,7 @@ for directory in ("src/voxtypex", "scripts", "packaging"):
         for p in (ROOT / directory).rglob("*")
         if p.is_file()
         and "__pycache__" not in p.parts
-        and p.suffix in (".py", ".ps1", ".md", ".html", ".spec")
+        and p.suffix in (".py", ".ps1", ".md", ".html", ".spec", ".iss")
     )
-archive(DIST / "VoxTypeX-0.1.0-source.zip", source_files, ROOT)
+archive(DIST / "VoxTypeX-0.1.1-source.zip", source_files, ROOT)
 print("Clean application and source archives created with SHA256")

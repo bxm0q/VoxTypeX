@@ -28,5 +28,5 @@ try {
 } finally { $env:PATH = $previousPath }
 Invoke-Python -Arguments @("scripts/release_files.py")
 Write-Output "Built: $root\dist\VoxTypeX\VoxTypeX.exe"
-Write-Output "Release: $root\dist\VoxTypeX-0.1.0-win-x64.zip"
+Write-Output "Release: $root\dist\VoxTypeX-0.1.1-win-x64.zip"
 Write-Output "Run scripts/smoke.ps1 with a speech WAV before publishing."

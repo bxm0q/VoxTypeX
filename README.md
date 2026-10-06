@@ -76,6 +76,4 @@ VoxTypeX работает в трее и превращает речь в тек
 
 Интерфейс и трей сделаны на Qt, распознавание работает в отдельном процессе. Готовая Windows-сборка собирается через PyInstaller, установщик — через Inno Setup.
 
-[Запуск из исходников и сборка](https://github.com/bxm0q/VoxTypeX/blob/main/docs/DEVELOPMENT.md) · [Ручная проверка](docs/MANUAL_SMOKE_TEST.md)
-
 Нашли ошибку — создайте [issue](https://github.com/bxm0q/VoxTypeX/issues). Укажите версию Windows, выбранную модель и что произошло; приложите сообщение об ошибке, если оно есть.

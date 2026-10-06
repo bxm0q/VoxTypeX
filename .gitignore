@@ -35,5 +35,6 @@ models/
 docs/*
 !docs/MANUAL_SMOKE_TEST.md
 !docs/SETTINGS.md
+!docs/DEVELOPMENT.md
 tests/*
 !tests/test_*.py

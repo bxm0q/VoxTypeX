@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/handy-computer/transcribe.cpp.git",
+  "revision": "f1dcd15858c4bbba87ca97862b4e448b2cf15b8f",
+  "version": "0.4.0",
+  "backend": "cpu",
+  "cpu_variants": "x64 baseline and runtime ISA dispatch",
+  "license": "MIT",
+  "cmake_options": {
+    "TRANSCRIBE_GGML_BACKEND_DL": "ON",
+    "GGML_CPU_ALL_VARIANTS": "ON",
+    "TRANSCRIBE_X86_CONSERVATIVE": "ON",
+    "TRANSCRIBE_VULKAN": "OFF"
+  }
+}

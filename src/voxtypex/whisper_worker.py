@@ -1,9 +1,9 @@
 import gc
 import os
 import traceback
-from pathlib import Path
 
 from .interfaces import TranscriptionResult
+from .models import WhisperModelManager
 
 
 class WhisperRuntime:
@@ -16,41 +16,17 @@ class WhisperRuntime:
         self.model = None
         self.source = None
         self.device = "cpu"
+        self.models = WhisperModelManager(cache_dir)
 
     def _resolve(self):
         if self.source is not None:
             return self.source
-        if self.model_path is not None:
-            path = Path(self.model_path)
-            if not self._complete(path):
-                raise FileNotFoundError(f"Local Whisper model not found: {path}")
-            self.source = str(path)
-        else:
-            from faster_whisper.utils import download_model
-
-            try:
-                cached = download_model(self.model_name, cache_dir=self.cache_dir, local_files_only=True)
-                if not self._complete(Path(cached)):
-                    raise FileNotFoundError("Cached model is incomplete; resuming download")
-                self.source = cached
-            except Exception:
-                self.report("phase", "downloading")
-                self.report(
-                    "status",
-                    f"Downloading multilingual Whisper {self.model_name}; first use requires internet",
-                )
-                self.source = download_model(self.model_name, cache_dir=self.cache_dir)
-                if not self._complete(Path(self.source)):
-                    self.source = None
-                    raise FileNotFoundError("Downloaded model is incomplete")
-        return self.source
-
-    @staticmethod
-    def _complete(path):
-        return all(
-            (path / name).is_file() and (path / name).stat().st_size > 0
-            for name in ("model.bin", "config.json", "tokenizer.json")
+        self.source = self.models.resolve(
+            self.model_name,
+            self.model_path,
+            progress=lambda event: self.report("phase", event.stage.value),
         )
+        return self.source
 
     def _load(self):
         import ctranslate2
@@ -69,7 +45,7 @@ class WhisperRuntime:
                             self.device, compute = "cuda", candidate
                             break
             except Exception as exc:
-                self.report("warning", f"CUDA unavailable; using CPU: {exc}")
+                self.report("warning", f"CUDA unavailable; using CPU ({type(exc).__name__})")
         self.report("device", self.device)
         self.report("status", f"Loading Whisper {self.model_name}: {self.device}/{compute}")
         self.model = WhisperModel(
@@ -113,7 +89,8 @@ class WhisperRuntime:
         except Exception as exc:
             if self.device != "cuda":
                 raise
-            self.report("warning", f"CUDA failed; retrying once on CPU: {exc}")
+            self.report("warning", f"CUDA failed; retrying once on CPU ({type(exc).__name__})")
+            self.report("fallback", "cpu")
             self.model = None
             gc.collect()
             self.force_cpu = True
@@ -123,20 +100,31 @@ class WhisperRuntime:
 def run_worker(connection, cache_dir, model, model_path, force_cpu):
     os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
     os.environ.setdefault("KMP_BLOCKTIME", "0")
+    request_id = 0
     runtime = WhisperRuntime(
-        cache_dir, model, model_path, force_cpu, lambda kind, message: connection.send((kind, message))
+        cache_dir,
+        model,
+        model_path,
+        force_cpu,
+        lambda kind, message: connection.send((request_id, kind, message)),
     )
     try:
         while True:
-            audio, language = connection.recv()
+            request_id, audio, language = connection.recv()
             try:
                 result = runtime.transcribe(audio, language)
             except Exception as exc:
                 error_code = "model" if runtime.model is None else "transcription"
-                connection.send(("error", traceback.format_exc()))
-                message = f"{type(exc).__name__}: {exc}"
+                connection.send(
+                    (
+                        request_id,
+                        "error",
+                        "".join(traceback.format_tb(exc.__traceback__)) + type(exc).__name__,
+                    )
+                )
+                message = type(exc).__name__
                 if isinstance(exc, MemoryError) or any(
-                    t in message.lower() for t in ("memory", "bad_alloc", "allocat")
+                    t in str(exc).lower() for t in ("memory", "bad_alloc", "allocat")
                 ):
                     message += "; недостаточно памяти: закройте другие приложения или выберите base/tiny"
                     runtime.model = None
@@ -146,7 +134,7 @@ def run_worker(connection, cache_dir, model, model_path, force_cpu):
                         "; проверьте кэш модели, свободное место и доступ к интернету при первом запуске"
                     )
                 result = TranscriptionResult(error=message, error_code=error_code)
-            connection.send(("result", result))
+            connection.send((request_id, "result", result))
             del audio, result
     except (EOFError, BrokenPipeError):
         pass

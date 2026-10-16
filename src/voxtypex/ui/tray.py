@@ -36,6 +36,7 @@ class TrayApplication:
         self.quitting = False
         self._quit_deadline = None
         self._reported_error = ""
+        self._progress_phase = "transcribing"
         self.overlay = StatusOverlay()
         self.window = SettingsWindow(store, settings)
         self.window.settings_saved.connect(self.apply_settings)
@@ -110,6 +111,11 @@ class TrayApplication:
             "DISABLED": "Disabled — выключено",
         }[state]
         progress = getattr(self.service, "progress", "transcribing")
+        if self.service is not None and hasattr(self.service, "drain_progress"):
+            for event in self.service.drain_progress():
+                self._progress_phase = event.stage.value
+            if self._progress_phase in PROGRESS_TEXT:
+                progress = self._progress_phase
         if state == "TRANSCRIBING":
             description = "Transcribing — " + PROGRESS_TEXT.get(progress, PROGRESS_TEXT["transcribing"])
         label = f"VoxTypeX — {description}"
@@ -176,6 +182,7 @@ class TrayApplication:
         self.controller.close()
         self.tray.hide()
         self.overlay.close()
+        self.window.local_models.shutdown()
         self.window.close()
         self.menu.close()
         logging.getLogger(__name__).info("Application stopped")

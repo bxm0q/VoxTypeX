@@ -27,9 +27,11 @@ runtime_packages = (
     "hf-xet",
     "certifi",
     "cffi",
+    "transcribe-cpp",
+    "transcribe-cpp-native",
 )
 notices = [
-    "VoxTypeX 0.1.1 — third-party components",
+    "VoxTypeX 0.1.2 — third-party components",
     "License texts and metadata are preserved in _internal/*.dist-info.",
     "Qt/PySide DLLs are dynamically linked and remain separate in this onedir distribution.",
     "Upstream Qt/PySide source: https://code.qt.io/cgit/pyside/pyside-setup.git/",
@@ -45,8 +47,17 @@ for package in runtime_packages:
 (APP / "THIRD_PARTY_NOTICES.txt").write_text("\n".join(notices), encoding="utf-8")
 (APP / "README.md").write_bytes((ROOT / "README.md").read_bytes())
 (APP / "docs").mkdir(exist_ok=True)
-for name in ("MANUAL_SMOKE_TEST.md", "SETTINGS.md"):
+for name in (
+    "MANUAL_SMOKE_TEST.md",
+    "SETTINGS.md",
+    "LOCAL_MODELS.md",
+    "ASR_BENCHMARK.md",
+    "ASR_BENCHMARK_RESULTS.json",
+):
     (APP / "docs" / name).write_bytes((ROOT / "docs" / name).read_bytes())
+(APP / "docs/licenses").mkdir(exist_ok=True)
+for license_file in (ROOT / "packaging/licenses").glob("*.txt"):
+    (APP / "docs/licenses" / license_file.name).write_bytes(license_file.read_bytes())
 
 
 def archive(path, files, base):
@@ -59,13 +70,28 @@ def archive(path, files, base):
 
 
 application_files = [APP / name for name in ("VoxTypeX.exe", "README.md", "THIRD_PARTY_NOTICES.txt")]
-application_files += [APP / "docs" / name for name in ("MANUAL_SMOKE_TEST.md", "SETTINGS.md")]
+application_files += [p for p in (APP / "docs").rglob("*") if p.is_file()]
 application_files += [p for p in (APP / "_internal").rglob("*") if p.is_file()]
-archive(DIST / "VoxTypeX-0.1.1-win-x64.zip", application_files, DIST)
+archive(DIST / "VoxTypeX-0.1.2-win-x64.zip", application_files, DIST)
 source_files = [
-    ROOT / name for name in ("README.md", "pyproject.toml", ".gitignore", ".gitattributes", "requirements-build.lock")
+    ROOT / name
+    for name in ("README.md", "pyproject.toml", ".gitignore", ".gitattributes", "requirements-build.lock")
 ]
-source_files += [ROOT / "docs" / name for name in ("MANUAL_SMOKE_TEST.md", "SETTINGS.md")]
+source_files += [
+    ROOT / "docs" / name
+    for name in (
+        "MANUAL_SMOKE_TEST.md",
+        "DEVELOPMENT.md",
+        "SETTINGS.md",
+        "ARCHITECTURE.md",
+        "LOCAL_MODELS.md",
+        "ASR_BENCHMARK.md",
+        "ASR_BENCHMARK_RESULTS.json",
+        "ITERATION2_REPORT.md",
+    )
+]
+source_files += [ROOT / "src/voxtypex/model_catalog.json", ROOT / "packaging/native-runtime.json"]
+source_files += [p for p in (ROOT / "packaging/licenses").glob("*") if p.is_file()]
 source_files += sorted((ROOT / "tests").glob("test_*.py"))
 for directory in ("src/voxtypex", "scripts", "packaging"):
     source_files.extend(
@@ -75,5 +101,5 @@ for directory in ("src/voxtypex", "scripts", "packaging"):
         and "__pycache__" not in p.parts
         and p.suffix in (".py", ".ps1", ".md", ".html", ".spec", ".iss")
     )
-archive(DIST / "VoxTypeX-0.1.1-source.zip", source_files, ROOT)
+archive(DIST / "VoxTypeX-0.1.2-source.zip", source_files, ROOT)
 print("Clean application and source archives created with SHA256")

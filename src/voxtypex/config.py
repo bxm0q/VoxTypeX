@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import tempfile
 from dataclasses import asdict, dataclass
@@ -14,7 +15,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class Settings:
-    schema_version: int = 2
+    schema_version: int = 4
     push_to_talk_key: str = "right_alt"
     debug_wav: bool = False
     whisper_model: str = "small"
@@ -23,6 +24,11 @@ class Settings:
     microphone: str | None = None
     visual_indication: bool = True
     enabled: bool = True
+    asr_backend: str = "faster-whisper"
+    transcription_timeout_seconds: float = 900.0
+    ru_quality: str = "compact"
+    uk_quality: str = "compact"
+    en_quality: str = "compact"
 
     def __post_init__(self) -> None:
         if self.whisper_model not in ("tiny", "base", "small"):
@@ -39,8 +45,21 @@ class Settings:
             not isinstance(self.microphone, str) or not self.microphone.strip()
         ):
             raise ConfigError("microphone must be a device identifier or null")
-        if type(self.schema_version) is not int or self.schema_version != 2:
+        if type(self.schema_version) is not int or self.schema_version != 4:
             raise ConfigError("Unsupported settings version")
+        if self.asr_backend not in ("faster-whisper", "transcribe-cpp"):
+            raise ConfigError("Unsupported ASR backend")
+        if any(
+            value not in ("compact", "accurate")
+            for value in (self.ru_quality, self.uk_quality, self.en_quality)
+        ):
+            raise ConfigError("Language model quality must be compact or accurate")
+        if (
+            type(self.transcription_timeout_seconds) not in (int, float)
+            or not math.isfinite(self.transcription_timeout_seconds)
+            or not 1 <= self.transcription_timeout_seconds <= 3600
+        ):
+            raise ConfigError("transcription_timeout_seconds must be between 1 and 3600")
         if not isinstance(self.push_to_talk_key, str) or self.push_to_talk_key not in KEY_CODES:
             raise ConfigError("Unsupported Push-to-Talk key")
 
@@ -75,42 +94,69 @@ class SettingsService:
         if not self.path.exists():
             self.current = Settings()
             return self.current
+        original = self.path.read_bytes()
+        settings, version = self._decode(original)
+        if version < 4:
+            self._backup(original, version)
+            self._write(settings, original)
+        self.current = settings
+        return settings
+
+    def _decode(self, original: bytes) -> tuple[Settings, int]:
+        def unique_object(pairs):
+            raw = {}
+            for key, value in pairs:
+                if key in raw:
+                    raise ConfigError("Duplicate settings key")
+                raw[key] = value
+            return raw
+
         try:
-            original = self.path.read_bytes()
-            raw = json.loads(original.decode("utf-8"))
+            raw = json.loads(original.decode("utf-8"), object_pairs_hook=unique_object)
             if not isinstance(raw, dict):
                 raise ConfigError("Settings must be a JSON object")
             version = raw.get("schema_version", 1)
-            if type(version) is not int or version not in (1, 2):
+            if type(version) is not int or version not in (1, 2, 3, 4):
                 raise ConfigError("Unsupported settings version; use a compatible VoxTypeX version")
-            migrated = version == 1
-            if migrated:
-                raw = dict(raw, schema_version=2)
+            if version < 4 and any(key in raw for key in ("ru_quality", "uk_quality", "en_quality")):
+                raise ConfigError("Unknown language profile fields in legacy settings")
+            if version < 3:
+                # No invented translation/AI fields: only implemented v3 defaults.
+                if "asr_backend" in raw or "transcription_timeout_seconds" in raw:
+                    raise ConfigError("Unknown fields in legacy settings")
+            if version < 4:
+                raw = dict(raw, schema_version=4)
             settings = Settings(**raw)
-            if migrated:
-                # Back up the exact original before the first on-disk migration.
-                backup = self.path.with_name(self.path.name + ".v1.bak")
-                number = 0
-                while True:
-                    try:
-                        with backup.open("xb") as stream:
-                            stream.write(original)
-                            stream.flush()
-                            os.fsync(stream.fileno())
-                        break
-                    except FileExistsError:
-                        if backup.read_bytes() == original:
-                            break
-                        number += 1
-                        backup = self.path.with_name(self.path.name + f".v1.bak.{number}")
-                self.save(settings)
-            self.current = settings
-            return settings
+            return settings, version
         except (ValueError, TypeError) as exc:
-            raise ConfigError(f"Invalid settings file: {self.path}: {exc}") from exc
+            raise ConfigError(f"Invalid settings file: {self.path} ({type(exc).__name__})") from exc
+
+    def _backup(self, original: bytes, version: int) -> None:
+        backup = self.path.with_name(self.path.name + f".v{version}.bak")
+        number = 0
+        while True:
+            try:
+                with backup.open("xb") as stream:
+                    stream.write(original)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                return
+            except FileExistsError:
+                if backup.read_bytes() == original:
+                    return
+                number += 1
+                backup = self.path.with_name(self.path.name + f".v{version}.bak.{number}")
 
     def save(self, settings: Settings) -> None:
         settings = Settings(**asdict(settings))
+        original = self.path.read_bytes() if self.path.exists() else None
+        if original is not None:
+            _, version = self._decode(original)
+            if version < 4:
+                self._backup(original, version)
+        self._write(settings, original)
+
+    def _write(self, settings: Settings, original: bytes | None) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:
@@ -122,6 +168,10 @@ class SettingsService:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
+            # Do not overwrite a file replaced/edited while this save was prepared.
+            current = self.path.read_bytes() if self.path.exists() else None
+            if current != original:
+                raise ConfigError("Settings changed on disk; reload before saving")
             os.replace(temporary, self.path)
             self.current = settings
         finally:

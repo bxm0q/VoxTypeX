@@ -7,13 +7,21 @@ datas = collect_data_files("faster_whisper") + copy_metadata("faster-whisper", r
 for package in ("PySide6", "PySide6_Essentials", "PySide6_Addons", "shiboken6", "sounddevice", "pynput", "comtypes"):
     datas += copy_metadata(package)
 binaries = collect_dynamic_libs("ctranslate2")
+native = root / ".local" / "native" / "transcribe-cpp"
+if not (native / "ggml-cpu-x64.dll").is_file():
+    raise RuntimeError("Run scripts/build-native.ps1 with the build Python before freezing")
+binaries += [(str(path), "transcribe_native") for path in native.glob("*.dll")]
+datas += [(str(path), "transcribe_native") for path in native.glob("*.txt")]
+datas += [(str(native / "NATIVE_BUILD.json"), "transcribe_native")]
+datas += [(str(root / "src" / "voxtypex" / "model_catalog.json"), "voxtypex")]
+datas += copy_metadata("transcribe-cpp", recursive=True)
 
 a = Analysis(
     [str(root / "packaging" / "launcher.py")],
     pathex=[str(root / "src"), str(root / "packaging")],
     binaries=binaries,
     datas=datas,
-    hiddenimports=["pynput.keyboard._win32", "pynput.mouse._win32", "comtypes.client", "hf_xet"],
+    hiddenimports=["pynput.keyboard._win32", "pynput.mouse._win32", "comtypes.client", "hf_xet", "transcribe_cpp"],
     excludes=["pytest", "ruff", "tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"],
     noarchive=False,
 )

@@ -138,7 +138,7 @@ def test_native_cuda_crash_retries_cpu(tmp_path, monkeypatch):
 
 def test_worker_reports_memory_error(tmp_path, monkeypatch):
     messages = []
-    incoming = [(AudioClip(b"", 16000), None)]
+    incoming = [(5, AudioClip(b"", 16000), None)]
 
     def recv():
         if incoming:
@@ -151,17 +151,18 @@ def test_worker_reports_memory_error(tmp_path, monkeypatch):
     monkeypatch.setattr(WhisperRuntime, "transcribe", fail)
     connection = SimpleNamespace(recv=recv, send=messages.append, close=lambda: None)
     run_worker(connection, str(tmp_path), "small", None, True)
-    assert "недостаточно памяти" in messages[-1][1].error
+    assert messages[-1][0] == 5
+    assert "недостаточно памяти" in messages[-1][2].error
 
 
 def test_worker_progress_reaches_parent_and_resets_phase_deadline(tmp_path):
     engine = FasterWhisperEngine(tmp_path)
     messages = iter(
         [
-            ("phase", "downloading"),
-            ("phase", "loading"),
-            ("phase", "transcribing"),
-            ("result", TranscriptionResult(text="OK")),
+            (0, "phase", "downloading"),
+            (0, "phase", "loading"),
+            (0, "phase", "transcribing"),
+            (0, "result", TranscriptionResult(text="OK")),
         ]
     )
     engine._connection = SimpleNamespace(poll=lambda _: True, recv=lambda: next(messages))
@@ -201,11 +202,22 @@ def nonreading_worker(connection, *args):
     sleep(30)
 
 
-def test_cancel_while_large_clip_is_blocked_in_pipe(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["shutdown", "request"])
+def test_cancel_while_large_clip_is_blocked_in_pipe(tmp_path, monkeypatch, mode):
+    from voxtypex.interfaces import OperationContext
+
     monkeypatch.setattr("voxtypex.whisper_engine.run_worker", nonreading_worker)
     engine = FasterWhisperEngine(tmp_path)
+    operation = OperationContext(1) if mode == "request" else None
     results = []
-    thread = Thread(target=lambda: results.append(engine.transcribe(AudioClip(b"\0\0" * 16000 * 120, 16000))))
+    thread = Thread(
+        target=lambda: results.append(
+            engine.transcribe(
+                AudioClip(b"\0\0" * 16000 * 120, 16000),
+                context=operation,
+            )
+        )
+    )
     thread.start()
     try:
         deadline = monotonic() + 4
@@ -213,7 +225,10 @@ def test_cancel_while_large_clip_is_blocked_in_pipe(tmp_path, monkeypatch):
             assert monotonic() < deadline
             sleep(0.01)
         sleep(0.2)
-        engine.cancel()
+        if operation is not None:
+            operation.cancelled.set()
+        else:
+            engine.cancel()
         thread.join(5)
         assert not thread.is_alive()
         assert results[0].error == "Распознавание отменено"
@@ -245,3 +260,178 @@ def test_cancel_terminates_real_worker_process(tmp_path, monkeypatch):
     finally:
         engine.close()
         thread.join(4)
+
+
+def echo_worker(connection, *args):
+    request_id, _, _ = connection.recv()
+    connection.send((request_id, "result", TranscriptionResult(text="retry OK")))
+    connection.close()
+
+
+def test_request_cancel_stops_process_but_next_request_can_transcribe(tmp_path, monkeypatch):
+    from voxtypex.interfaces import OperationContext
+
+    monkeypatch.setattr("voxtypex.whisper_engine.run_worker", sleeping_worker)
+    operation = OperationContext(1)
+    engine = FasterWhisperEngine(tmp_path)
+    results = []
+    thread = Thread(
+        target=lambda: results.append(
+            engine.transcribe(
+                AudioClip(b"\1\0" * 16000, 16000),
+                context=operation,
+            )
+        )
+    )
+    thread.start()
+    try:
+        deadline = monotonic() + 4
+        while engine._process is None or engine._process.pid is None:
+            assert thread.is_alive() and monotonic() < deadline
+            sleep(0.01)
+        operation.cancelled.set()
+        thread.join(4)
+        assert not thread.is_alive() and results[0].error_code == "cancelled"
+        assert engine._process is None
+        monkeypatch.setattr("voxtypex.whisper_engine.run_worker", echo_worker)
+        assert (
+            engine.transcribe(AudioClip(b"\1\0" * 16000, 16000), context=OperationContext(2)).text
+            == "retry OK"
+        )
+    finally:
+        operation.cancelled.set()
+        thread.join(4)
+        engine.close()
+
+
+def test_request_deadline_stops_real_worker(tmp_path, monkeypatch):
+    from voxtypex.interfaces import OperationContext
+
+    monkeypatch.setattr("voxtypex.whisper_engine.run_worker", sleeping_worker)
+    engine = FasterWhisperEngine(tmp_path)
+    try:
+        result = engine.transcribe(
+            AudioClip(b"\1\0" * 16000, 16000),
+            context=OperationContext(1, deadline=monotonic() + 0.5),
+        )
+        assert result.error_code == "timeout" and engine._process is None
+    finally:
+        engine.close()
+
+
+def test_stale_process_results_and_progress_are_not_applied_to_next_request(tmp_path):
+    from voxtypex.interfaces import OperationContext
+
+    engine = FasterWhisperEngine(tmp_path)
+    engine._operation = OperationContext(2)
+    engine._ipc_request_id = 2
+    events = []
+    engine._progress_sink = events.append
+    messages = iter(
+        [
+            (1, "phase", "downloading"),
+            (1, "result", TranscriptionResult(text="old text")),
+            (2, "phase", "transcribing"),
+            (2, "result", TranscriptionResult(text="current text")),
+        ]
+    )
+    engine._connection = SimpleNamespace(poll=lambda _: True, recv=lambda: next(messages))
+    assert engine._receive().text == "current text"
+    assert [(e.request_id, e.stage.value) for e in events] == [(2, "transcribing")]
+
+
+def test_request_deadline_is_not_reset_by_worker_progress(tmp_path, monkeypatch):
+    from voxtypex import interfaces
+
+    clock = [0.0]
+    monkeypatch.setattr(interfaces, "monotonic", lambda: clock[0])
+    engine = FasterWhisperEngine(tmp_path)
+
+    def recv():
+        clock[0] = 2
+        return 1, "phase", "loading"
+
+    engine._connection = SimpleNamespace(
+        send=lambda _: None, poll=lambda _: True, recv=recv, close=lambda: None
+    )
+    monkeypatch.setattr(engine, "_start", lambda: None)
+    result = engine.transcribe(
+        AudioClip(b"\1\0" * 16000, 16000),
+        context=interfaces.OperationContext(1, deadline=1),
+    )
+    assert engine.phase == "loading" and result.error_code == "timeout"
+    assert engine._connection is None
+
+
+def test_cancel_during_cuda_failure_does_not_start_a_fallback_process(tmp_path, monkeypatch):
+    from voxtypex.interfaces import OperationContext
+
+    operation = OperationContext(1)
+    engine = FasterWhisperEngine(tmp_path)
+    starts = []
+    engine._connection = SimpleNamespace(send=lambda _: None)
+    monkeypatch.setattr(engine, "_start", lambda: starts.append(True))
+    monkeypatch.setattr(engine, "_dispose", lambda: None)
+
+    def crash():
+        engine._device = "cuda"
+        operation.cancelled.set()
+        raise WorkerFailed("CUDA process exited")
+
+    monkeypatch.setattr(engine, "_receive", crash)
+    result = engine.transcribe(AudioClip(b"\1\0" * 16000, 16000), context=operation)
+    assert result.error_code == "cancelled" and len(starts) == 1
+    assert not engine._force_cpu
+
+
+class SlowExitProcess:
+    """Windows termination may return before native I/O cleanup has finished."""
+
+    pid = 123
+
+    def __init__(self, *, can_exit=True):
+        self.alive = True
+        self.can_exit = can_exit
+        self.killed = self.closed = False
+        self.waited_after_kill = 0
+
+    def is_alive(self):
+        return self.alive
+
+    def terminate(self):
+        pass
+
+    def kill(self):
+        self.killed = True
+
+    def join(self, timeout):
+        if self.killed:
+            self.waited_after_kill += timeout
+            if self.can_exit and self.waited_after_kill >= 2:
+                self.alive = False
+
+    def close(self):
+        if self.alive:
+            raise ValueError("Cannot close a process while it is still running")
+        self.closed = True
+
+
+def test_slow_forced_exit_is_awaited_before_closing_process(tmp_path):
+    engine = FasterWhisperEngine(tmp_path)
+    process = SlowExitProcess()
+    engine._process = process
+    engine._dispose()
+    assert process.killed and process.closed and not process.alive
+    assert engine._process is None
+
+
+def test_failed_termination_keeps_process_handle_for_cleanup_retry(tmp_path):
+    engine = FasterWhisperEngine(tmp_path)
+    process = SlowExitProcess(can_exit=False)
+    engine._process = process
+    with pytest.raises(WorkerFailed, match="did not exit"):
+        engine._dispose()
+    assert not process.closed and engine._process is process
+    process.can_exit = True
+    engine._dispose()
+    assert process.closed and engine._process is None

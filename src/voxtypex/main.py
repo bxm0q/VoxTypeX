@@ -5,6 +5,7 @@ import sys
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from .asr import make_transcriber as build_transcriber
 from .audio import MicrophoneRecorder
 from .config import SettingsService, data_directory, model_directory
 from .hotkeys import GlobalHotkey
@@ -12,9 +13,7 @@ from .insertion import TextInsertionService
 from .logging_setup import configure_logging
 from .recording_service import RecordingService
 from .state import AppController
-from .transcription import TranscriptionService
 from .ui.tray import TrayApplication
-from .whisper_engine import FasterWhisperEngine
 
 
 def main() -> int:
@@ -33,10 +32,7 @@ def main() -> int:
             store.save(settings)
 
         def make_transcriber(new_settings):
-            return TranscriptionService(
-                FasterWhisperEngine(model_directory(), new_settings.whisper_model, new_settings.model_path),
-                new_settings.language,
-            )
+            return build_transcriber(new_settings, model_directory())
 
         transcriber = make_transcriber(settings)
         service = RecordingService(

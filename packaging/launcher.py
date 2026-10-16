@@ -11,6 +11,10 @@ if __name__ == "__main__":
             from frozen_smoke import run
 
             exit_code = run(sys.argv[2], sys.argv[3])
+        elif len(sys.argv) == 4 and sys.argv[1] == "--smoke-local-models":
+            from native_smoke import run
+
+            exit_code = run(sys.argv[2], sys.argv[3])
         else:
             from voxtypex.main import main
 

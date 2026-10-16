@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "ru-compact",
+      "label": "GigaAM v3 e2e RNNT Q4_K_M",
+      "language": "ru",
+      "quality": "compact",
+      "backend": "transcribe-cpp",
+      "revision": "b9b68a835993df09018237a11d2a9b8c1925844d",
+      "files": [
+        {
+          "filename": "gigaam-v3-e2e-rnnt-Q4_K_M.gguf",
+          "url": "https://huggingface.co/handy-computer/gigaam-v3-e2e-rnnt-gguf/resolve/b9b68a835993df09018237a11d2a9b8c1925844d/gigaam-v3-e2e-rnnt-Q4_K_M.gguf",
+          "size_bytes": 183948704,
+          "sha256": "7d69952fb431a8d7800ed9910dc61fea37d8406bfe96d10bf24c8bd4b7c68623"
+        }
+      ],
+      "license": "MIT",
+      "license_url": "https://huggingface.co/ai-sage/GigaAM-v3/blob/ec1dc1f01d0d627ab2c0d3acc1e235702300d95e/README.md",
+      "restrictions": [
+        "16 kHz mono input; offline utterance transcription.",
+        "Russian only; includes casing and punctuation. No translation or language detection.",
+        "25 seconds is an advisory training window; segment longer speech."
+      ],
+      "max_audio_seconds": 25
+    },
+    {
+      "id": "uk-compact",
+      "label": "Moonshine Base UK Q8_0",
+      "language": "uk",
+      "quality": "compact",
+      "backend": "transcribe-cpp",
+      "revision": "094ab3ac27154de41f9031c09093e818d5819ec8",
+      "files": [
+        {
+          "filename": "moonshine-base-uk-Q8_0.gguf",
+          "url": "https://huggingface.co/handy-computer/moonshine-base-uk-gguf/resolve/094ab3ac27154de41f9031c09093e818d5819ec8/moonshine-base-uk-Q8_0.gguf",
+          "size_bytes": 77476512,
+          "sha256": "6dcac8c3905706e8c8416f531a479eccaa38cdaf1eae439f776fda4d4faa88d3"
+        }
+      ],
+      "license": "Moonshine AI Community License",
+      "license_url": "https://github.com/moonshine-ai/moonshine/blob/234f60faa0eb388b01cdf7e60aca232af37aefda/LICENSE",
+      "restrictions": [
+        "16 kHz mono input; offline utterance transcription.",
+        "Ukrainian only; no translation, language detection, or timestamps.",
+        "Output is capped at 194 tokens; approximately 48 seconds is advisory, and dense shorter speech may also truncate.",
+        "Powered by Moonshine AI",
+        "Personal/hobbyist and evaluation/testing use are permitted by the Moonshine AI Community License.",
+        "Commercial use requires registration; aggregate annual revenue over USD 1,000,000 requires an enterprise license.",
+        "Distribution requires the license agreement, attribution Notice, and visible Powered by Moonshine AI attribution."
+      ],
+      "max_audio_seconds": 48
+    },
+    {
+      "id": "en-compact",
+      "label": "Canary 180M Flash Q4_K_M",
+      "language": "en",
+      "quality": "compact",
+      "backend": "transcribe-cpp",
+      "revision": "46b86384d1db59108d6e060a0fc00924cb58499f",
+      "files": [
+        {
+          "filename": "canary-180m-flash-Q4_K_M.gguf",
+          "url": "https://huggingface.co/handy-computer/canary-180m-flash-gguf/resolve/46b86384d1db59108d6e060a0fc00924cb58499f/canary-180m-flash-Q4_K_M.gguf",
+          "size_bytes": 139223840,
+          "sha256": "0bcbac1d05674625393ac6be663a04d34341e39ea14cd172d4cd35d958343da8"
+        }
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "restrictions": [
+        "16 kHz mono input; offline utterance transcription.",
+        "Supports en/de/es/fr; explicitly choose English for this catalog profile. No language detection.",
+        "Upstream is designed for input under 40 seconds; segment longer speech. Runtime hard caps derive from model metadata.",
+        "CC-BY-4.0 requires attribution and indicating modifications."
+      ],
+      "max_audio_seconds": 40
+    },
+    {
+      "id": "ru-accurate",
+      "label": "GigaAM v3 e2e RNNT Q8_0",
+      "language": "ru",
+      "quality": "accurate",
+      "backend": "transcribe-cpp",
+      "revision": "b9b68a835993df09018237a11d2a9b8c1925844d",
+      "files": [
+        {
+          "filename": "gigaam-v3-e2e-rnnt-Q8_0.gguf",
+          "url": "https://huggingface.co/handy-computer/gigaam-v3-e2e-rnnt-gguf/resolve/b9b68a835993df09018237a11d2a9b8c1925844d/gigaam-v3-e2e-rnnt-Q8_0.gguf",
+          "size_bytes": 273724832,
+          "sha256": "78d63b47723b7f8d78c6113a6ef983b5a86e2a86f6c273e1f5cb6967b1c4467a"
+        }
+      ],
+      "license": "MIT",
+      "license_url": "https://huggingface.co/ai-sage/GigaAM-v3/blob/ec1dc1f01d0d627ab2c0d3acc1e235702300d95e/README.md",
+      "restrictions": [
+        "16 kHz mono input; offline utterance transcription.",
+        "Russian only; includes casing and punctuation. No translation or language detection.",
+        "25 seconds is an advisory training window; segment longer speech."
+      ],
+      "max_audio_seconds": 25
+    },
+    {
+      "id": "en-accurate",
+      "label": "Canary 180M Flash Q8_0",
+      "language": "en",
+      "quality": "accurate",
+      "backend": "transcribe-cpp",
+      "revision": "46b86384d1db59108d6e060a0fc00924cb58499f",
+      "files": [
+        {
+          "filename": "canary-180m-flash-Q8_0.gguf",
+          "url": "https://huggingface.co/handy-computer/canary-180m-flash-gguf/resolve/46b86384d1db59108d6e060a0fc00924cb58499f/canary-180m-flash-Q8_0.gguf",
+          "size_bytes": 218447648,
+          "sha256": "f942ab746040b531a29ab78ca3afc8dc9564efd8e4c942b5541e53644be9c408"
+        }
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "restrictions": [
+        "16 kHz mono input; offline utterance transcription.",
+        "Supports en/de/es/fr; explicitly choose English for this catalog profile. No language detection.",
+        "Upstream is designed for input under 40 seconds; segment longer speech. Runtime hard caps derive from model metadata.",
+        "CC-BY-4.0 requires attribution and indicating modifications."
+      ],
+      "max_audio_seconds": 40
+    },
+    {
+      "id": "uk-accurate",
+      "label": "Parakeet TDT 0.6B v3 Q8_0",
+      "language": "uk",
+      "quality": "accurate",
+      "backend": "transcribe-cpp",
+      "revision": "90f082450fcbacdb54e5900c44ef697c9ea59622",
+      "files": [
+        {
+          "filename": "parakeet-tdt-0.6b-v3-Q8_0.gguf",
+          "url": "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/90f082450fcbacdb54e5900c44ef697c9ea59622/parakeet-tdt-0.6b-v3-Q8_0.gguf",
+          "size_bytes": 739508576,
+          "sha256": "5859f77944efcd8eafa23a6350731960b2b55b2203df51f319665c807d802cc7"
+        }
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "restrictions": [
+        "16 kHz mono input; supports 25 European languages including Ukrainian.",
+        "Language is detected by the model; this profile is offered for Ukrainian.",
+        "No practical input duration limit in transcribe.cpp; long audio still requires memory proportional to input.",
+        "CC-BY-4.0 requires attribution and indicating modifications."
+      ],
+      "max_audio_seconds": null
+    }
+  ]
+}

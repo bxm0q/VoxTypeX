@@ -1,8 +1,8 @@
 ﻿param([Parameter(Mandatory = $true)][string]$SpeechWav,
-    [string]$Installer = "")
+    [string]$Installer = "", [string]$NativeManifest = "")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $Installer) { $Installer = Join-Path $root "dist\VoxTypeX-0.1.1-setup-x64.exe" }
+if (-not $Installer) { $Installer = Join-Path $root "dist\VoxTypeX-0.1.2-setup-x64.exe" }
 $installerPath = (Resolve-Path -LiteralPath $Installer).Path
 $testRoot = Join-Path $root (".local\installer-smoke-" + [guid]::NewGuid().ToString("N"))
 $installDir = Join-Path $testRoot "Установка VoxTypeX"
@@ -35,6 +35,12 @@ try {
         throw "Installed executable differs from the build."
     }
     if (-not (Test-Path -LiteralPath "$installDir\_internal\PySide6\QtCore.pyd")) { throw "Qt payload missing." }
+    foreach ($required in @('_internal\transcribe_native\ggml-cpu-x64.dll',
+            '_internal\transcribe_native\NATIVE_BUILD.json', '_internal\voxtypex\model_catalog.json',
+            'docs\licenses\MOONSHINE-COMMUNITY.txt', 'docs\licenses\NOTICE.txt')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $installDir $required))) { throw "Installed payload missing: $required" }
+    }
+    $checks.Add("native CPU payload, pinned model catalog, Moonshine license and NOTICE")
     $shell = New-Object -ComObject WScript.Shell
     foreach ($link in @($desktopLink, $menuLink)) {
         if (-not (Test-Path -LiteralPath $link) -or $shell.CreateShortcut($link).TargetPath -ne $exe) {
@@ -47,6 +53,10 @@ try {
     $checks.Add("desktop and Start menu shortcuts; quoted startup entry; Windows uninstall entry")
     & "$PSScriptRoot\smoke.ps1" -Exe $exe -SpeechWav $SpeechWav
     $checks.Add("installed application: tray, settings, microphone, Whisper process, shutdown")
+    if ($NativeManifest) {
+        & "$PSScriptRoot\smoke-local-models.ps1" -Exe $exe -Manifest $NativeManifest
+        $checks.Add("installed native worker: RU/UK/EN, long audio, cancel/retry, idle release")
+    }
 
     Install-Test "" "reinstall.log"
     if ((Test-Path -LiteralPath $desktopLink) -or (Get-ItemProperty -LiteralPath $runKey -Name VoxTypeX -ErrorAction SilentlyContinue)) {

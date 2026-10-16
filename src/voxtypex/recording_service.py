@@ -2,13 +2,26 @@ import logging
 import os
 import wave
 from dataclasses import dataclass, field
+from itertools import count
 from pathlib import Path
 from queue import Empty, SimpleQueue
 from threading import Event, Lock, Thread
-from time import perf_counter
+from time import monotonic, perf_counter
 
 from .config import Settings
-from .interfaces import MIN_RECORDING_SECONDS, AudioRecorder, HotkeyListener, TextInserter, Transcriber
+from .interfaces import (
+    MIN_RECORDING_SECONDS,
+    AudioRecorder,
+    HotkeyListener,
+    OperationContext,
+    OperationTimeout,
+    ProgressEvent,
+    ProgressStage,
+    SpeechPipeline,
+    TextInserter,
+    Transcriber,
+)
+from .progress import ProgressBuffer
 from .state import AppController, AppState
 
 logger = logging.getLogger(__name__)
@@ -16,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Session:
+    request_id: int = 0
     requested_at: float = field(default_factory=perf_counter)
     held: Event = field(default_factory=Event)
     cancelled: Event = field(default_factory=Event)
@@ -32,7 +46,7 @@ class RecordingService:
         hotkey: HotkeyListener,
         settings: Settings,
         directory: Path,
-        transcriber: Transcriber | None = None,
+        transcriber: SpeechPipeline | Transcriber | None = None,
         inserter: TextInserter | None = None,
         transcriber_factory=None,
     ):
@@ -65,6 +79,8 @@ class RecordingService:
         self._reservation = None
         self._pressed = None
         self._active = None
+        self._session_ids = count(1)
+        self._progress = ProgressBuffer()
         self._thread = Thread(target=self._run, name="voxtypex-recording", daemon=True)
 
     def start(self):
@@ -73,6 +89,13 @@ class RecordingService:
     @property
     def progress(self):
         return getattr(self.transcriber, "progress", "transcribing")
+
+    def drain_progress(self):
+        """GUI timer drains metadata; workers never receive a Qt callback."""
+        return self._progress.drain()
+
+    def _emit(self, session, stage):
+        self._progress.emit(ProgressEvent(session.request_id, stage))
 
     def pressed(self):
         # Вызывается с помощью хука Windows: без логирования, ввода-вывода или работы с Qt
@@ -85,7 +108,7 @@ class RecordingService:
             if self._busy or self.controller.state not in (AppState.IDLE, AppState.ERROR):
                 self._commands.put(("ignored", None))
                 return
-            session = Session()
+            session = Session(request_id=next(self._session_ids))
             if self.inserter is not None:
                 try:
                     session.target = self.inserter.capture_target()
@@ -131,9 +154,20 @@ class RecordingService:
                     self._settings_pending = False
 
     def _configure(self, value):
-        if self.transcriber_factory is not None and (value.whisper_model, value.model_path) != (
+        if self.transcriber_factory is not None and (
+            value.asr_backend,
+            value.whisper_model,
+            value.model_path,
+            value.ru_quality,
+            value.uk_quality,
+            value.en_quality,
+        ) != (
+            self.settings.asr_backend,
             self.settings.whisper_model,
             self.settings.model_path,
+            self.settings.ru_quality,
+            self.settings.uk_quality,
+            self.settings.en_quality,
         ):
             replacement = self.transcriber_factory(value)
             try:
@@ -222,6 +256,7 @@ class RecordingService:
             logger.info("PTT released before microphone startup; skipped")
             return
         self._active = session
+        self._progress.begin(session.request_id)
         self.last_insert_result = None
         self.last_result = None
         self._phase = "microphone"
@@ -229,6 +264,7 @@ class RecordingService:
         self.last_start_latency = perf_counter() - session.requested_at
         self.last_error = ""
         self.controller.transition(AppState.IDLE, AppState.RECORDING)
+        self._emit(session, ProgressStage.RECORDING)
         logger.info("Recording started; startup_ms=%.1f", self.last_start_latency * 1000)
         if self.inserter is not None and not self._closing.is_set():
             self._phase = "insertion"
@@ -251,6 +287,7 @@ class RecordingService:
         self._active = None
         if session.cancelled.is_set():
             logger.info("Voice input cancelled")
+            self._emit(session, ProgressStage.CANCELLED)
         elif clip.duration < MIN_RECORDING_SECONDS:
             logger.info("Short recording discarded (< %.0f ms)", MIN_RECORDING_SECONDS * 1000)
         else:
@@ -261,15 +298,30 @@ class RecordingService:
             if self.transcriber is not None and not self._closing.is_set():
                 self._phase = "transcription"
                 self.controller.transition(AppState.RECORDING, AppState.TRANSCRIBING)
-                result = self.transcriber.transcribe(clip)
+                context = OperationContext(
+                    session.request_id,
+                    session.cancelled,
+                    monotonic() + self.settings.transcription_timeout_seconds,
+                )
+                run = getattr(self.transcriber, "run", None)
+                result = (
+                    run(clip, context, self._progress.emit)
+                    if run is not None
+                    else self.transcriber.transcribe(clip)
+                )
                 if not self._closing.is_set() and not session.cancelled.is_set():
+                    if monotonic() >= context.deadline:
+                        self._phase = "timeout"
+                        self._emit(session, ProgressStage.TIMEOUT)
+                        raise OperationTimeout("Speech pipeline returned after its deadline")
                     self.last_result = result
                     if result.error:
                         if result.error_code == "model":
                             self._phase = "model"
                         elif result.error_code == "timeout":
                             self._phase = "timeout"
-                        raise RuntimeError(f"STT: {result.error}")
+                        # A provider error can contain private input; log only our category.
+                        raise RuntimeError(f"STT failed ({self._phase})")
                     if result.text and result.text.strip():
                         logger.info(
                             "Transcribed in %.2f sec (language=%s, characters=%d)",
@@ -280,6 +332,7 @@ class RecordingService:
                         if self.inserter is not None:
                             self._phase = "insertion"
                             self.controller.transition(AppState.TRANSCRIBING, AppState.INSERTING)
+                            self._emit(session, ProgressStage.INSERTING)
                             inserted = self.inserter.insert_text(result.text)
                             self.last_insert_result = inserted
                             logger.info(
@@ -352,6 +405,10 @@ class RecordingService:
                         self._phase = "settings"
                         (revision, value), self._pending_settings = self._pending_settings, None
                         self._apply_settings(value, revision)
+                    if not self._busy and self.transcriber is not None:
+                        idle = getattr(self.transcriber, "release_idle", None)
+                        if idle is not None:
+                            idle()
                 except Exception as exc:
                     self._error(exc)
                 # Сбой слушания необратим; оставить окно открытым и вывести сообщение об ошибке

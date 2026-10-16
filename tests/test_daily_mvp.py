@@ -38,7 +38,8 @@ def test_model_error_has_specific_message(service, caplog):
     wait_for(lambda: not service._busy)
     assert "Не удалось загрузить модель" in service.last_error
     assert "private/model/path" not in service.last_error
-    assert "private/model/path" in caplog.text
+    assert "STT failed (model)" in caplog.text
+    assert "private/model/path" not in caplog.text
 
 
 def test_repeat_cancel_and_rapid_edges_leave_no_stream(service):

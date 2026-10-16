@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
 from ..config import Settings, SettingsService
 from ..key_policy import KeyCapture, key_name
 from ..microphones import input_devices
+from ..models import WhisperModelRegistry
+from .local_models_panel import LocalModelsPanel
 
 
 def native_key(event):
@@ -90,26 +92,31 @@ class SettingsWindow(QDialog):
         form.addRow(self.device_status)
         self.language = QComboBox()
         for title, value in (
-            ("Auto — определить автоматически", None),
-            ("Russian — русский", "ru"),
-            ("Ukrainian — українська", "uk"),
+            ("Автоматически", None),
+            ("Русский", "ru"),
+            ("Українська", "uk"),
             ("English", "en"),
         ):
             self.language.addItem(title, value)
         form.addRow("Язык", self.language)
+        self.asr_backend = QComboBox()
+        self.asr_backend.addItem("Whisper", "faster-whisper")
+        self.asr_backend.addItem("Отдельная локальная модель языка", "transcribe-cpp")
+        form.addRow("Распознавание", self.asr_backend)
         self.model = QComboBox()
-        for title, value in (
-            ("Tiny — быстрее", "tiny"),
-            ("Base — баланс", "base"),
-            ("Small — точнее", "small"),
-        ):
-            self.model.addItem(title, value)
-        form.addRow("Модель", self.model)
+        for model in WhisperModelRegistry().models():
+            self.model.addItem(model.label, model.id)
+        form.addRow("Whisper / fallback", self.model)
         hint = QLabel(
-            "Новая модель скачается при первом распознавании.\nКлавиши не блокируются в других приложениях: выбирайте свободную."
+            "Whisper скачивается при первом распознавании; отдельные модели — кнопкой ниже.\n"
+            "Клавиши не блокируются в других приложениях: выбирайте свободную."
         )
         hint.setWordWrap(True)
         form.addRow(hint)
+        self.local_models = LocalModelsPanel()
+        form.addRow(self.local_models)
+        self.language.currentIndexChanged.connect(self._refresh_local_context)
+        self.asr_backend.currentIndexChanged.connect(self._refresh_local_context)
         self.visual = QCheckBox("Показывать индикатор записи и обработки")
         form.addRow("Индикация", self.visual)
         layout.addLayout(form)
@@ -135,6 +142,9 @@ class SettingsWindow(QDialog):
         self.settings = self.store.current
         self.key_label.setText(key_name(self.settings.push_to_talk_key))
         self.language.setCurrentIndex(self.language.findData(self.settings.language))
+        self.asr_backend.setCurrentIndex(self.asr_backend.findData(self.settings.asr_backend))
+        self.local_models.populate(self.settings)
+        self._refresh_local_context()
         while self.model.count() > 3:
             self.model.removeItem(3)
         if self.settings.model_path:
@@ -157,6 +167,12 @@ class SettingsWindow(QDialog):
             self.microphone.addItem("Сохранённый микрофон — проверка доступности…", identity)
             index = self.microphone.count() - 1
         self.microphone.setCurrentIndex(index)
+
+    def _refresh_local_context(self, *_):
+        self.local_models.set_context(
+            self.language.currentData(),
+            self.asr_backend.currentData() == "transcribe-cpp",
+        )
 
     def load_devices(self):
         self._devices_generation += 1
@@ -321,6 +337,8 @@ class SettingsWindow(QDialog):
             whisper_model=model,
             visual_indication=self.visual.isChecked(),
             model_path=base.model_path if choice == "local" else None,
+            asr_backend=self.asr_backend.currentData(),
+            **self.local_models.selected_qualities(),
         )
         if self._persist(settings):
             self.close()

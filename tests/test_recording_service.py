@@ -540,3 +540,80 @@ def test_model_replacement_is_closed_if_old_model_cleanup_fails(service):
     service.update_settings(replace(service.settings, whisper_model="tiny"))
     wait_for(lambda: service.controller.state is AppState.ERROR and not service._settings_pending)
     assert replacement.release.is_set()
+
+
+def test_repeated_release_and_cancel_commands_never_duplicate_insertion(service):
+    stt = FakeTranscriber(service)
+    service.transcriber = stt
+    service.inserter = FakeInserter(service)
+    service.pressed()
+    wait_for(lambda: service.controller.state == AppState.RECORDING)
+    session = service._reservation
+    service.released()
+    assert stt.entered.wait(1)
+    for _ in range(20):
+        service._commands.put(("release", session))
+        service.released()
+    stt.release.set()
+    wait_for(lambda: not service._busy)
+    # Wait behind all queued releases, not merely behind the first result.
+    service.update_settings(replace(service.settings, language="uk"))
+    wait_for(lambda: not service._settings_pending)
+    assert service.inserter.calls == ["Привіт!"] and stt.calls == 1
+
+
+def test_error_result_cannot_leak_dictated_text_into_log(service, caplog):
+    stt = FakeTranscriber(service)
+    stt.result = TranscriptionResult(error="private dictated sentence", error_code="backend")
+    stt.release.set()
+    service.transcriber = stt
+    service.pressed()
+    wait_for(lambda: service.controller.state == AppState.RECORDING)
+    service.released()
+    wait_for(lambda: service.controller.state == AppState.ERROR and not service._busy)
+    assert "private dictated sentence" not in caplog.text
+
+
+def test_recording_uses_pipeline_context_and_metadata_events(service):
+    from voxtypex.interfaces import ProgressEvent, ProgressStage
+
+    class Pipeline(FakeTranscriber):
+        def run(self, audio, context, progress):
+            assert context.deadline is not None and 899 < context.deadline - monotonic() <= 900
+            assert context.cancelled is service._reservation.cancelled
+            progress(ProgressEvent(context.request_id, ProgressStage.LOADING))
+            return self.transcribe(audio)
+
+    stt = Pipeline(service)
+    stt.release.set()
+    service.transcriber = stt
+    service.inserter = FakeInserter(service)
+    service.pressed()
+    wait_for(lambda: service.controller.state == AppState.RECORDING)
+    service.released()
+    wait_for(lambda: not service._busy)
+    events = service.drain_progress()
+    assert "loading" in [e.stage.value for e in events]
+    assert len({e.request_id for e in events}) == 1
+    assert service.inserter.calls == ["Привіт!"]
+
+
+def test_late_pipeline_success_never_reaches_inserter(service, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr("voxtypex.recording_service.monotonic", lambda: clock[0])
+    service.settings = replace(service.settings, transcription_timeout_seconds=1)
+
+    class Late(FakeTranscriber):
+        def run(self, audio, context, progress):
+            clock[0] = 2.0
+            return self.result  # Deliberately non-cooperative external implementation.
+
+    service.transcriber = Late(service)
+    service.inserter = FakeInserter(service)
+    service.pressed()
+    wait_for(lambda: service.controller.state == AppState.RECORDING)
+    service.released()
+    wait_for(lambda: not service._busy)
+    assert service.controller.state == AppState.ERROR
+    assert not service.inserter.calls and service.last_result is None
+    assert "время ожидания" in service.last_error

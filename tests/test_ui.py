@@ -248,3 +248,37 @@ def test_visual_indication_can_be_disabled_without_losing_status(app, tmp_path):
         assert "Transcribing" in runtime.tray.toolTip()
     finally:
         runtime.close()
+
+
+def test_worker_progress_is_consumed_by_gui_refresh(app, tmp_path):
+    from threading import Event, Thread
+    from types import SimpleNamespace
+
+    from voxtypex.interfaces import ProgressEvent, ProgressStage
+    from voxtypex.progress import ProgressBuffer
+    from voxtypex.state import AppController, AppState
+
+    stream = ProgressBuffer()
+    stream.begin(1)
+    service = SimpleNamespace(
+        controller=AppController(),
+        finished=Event(),
+        last_error="",
+        set_settings_open=lambda _: None,
+        close=lambda: None,
+        drain_progress=stream.drain,
+    )
+    runtime = TrayApplication(app, SettingsStore(tmp_path / "settings.json"), Settings(), service)
+    try:
+        service.controller.transition(AppState.IDLE, AppState.RECORDING)
+        service.controller.transition(AppState.RECORDING, AppState.TRANSCRIBING)
+        producer = Thread(target=lambda: stream.emit(ProgressEvent(1, ProgressStage.LOADING)))
+        producer.start()
+        producer.join()
+        runtime.refresh()
+        assert "Загружаю модель в память" in runtime.overlay.text()
+        assert "Загружаю модель в память" in runtime.tray.toolTip()
+        assert runtime.overlay.thread() is app.thread()
+        assert not stream.drain()
+    finally:
+        runtime.close()

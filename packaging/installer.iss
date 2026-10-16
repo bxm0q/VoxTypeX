@@ -40,7 +40,7 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Messages]
 WelcomeLabel1=Установка VoxTypeX
-WelcomeLabel2=VoxTypeX позволяет диктовать текст в других программах.%n%nВыберите папку установки и нужные параметры запуска.%n%nМодель распознавания скачивается при первой диктовке. Затем она используется локально.
+WelcomeLabel2=VoxTypeX позволяет диктовать текст в других программах.%n%nВыберите папку установки и нужные параметры запуска.%n%nWhisper скачивается при первой диктовке. Отдельные модели RU / UK / EN устанавливаются через настройки. После загрузки распознавание работает локально.
 SelectDirLabel3=Выберите папку для VoxTypeX. Настройки и модели хранятся отдельно в вашем профиле Windows.
 SelectTasksLabel2=Выберите, как запускать VoxTypeX:
 FinishedHeadingLabel=Установка завершена
@@ -55,8 +55,7 @@ Source: "{#SourceDir}\VoxTypeX.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\docs\MANUAL_SMOKE_TEST.md"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "{#SourceDir}\docs\SETTINGS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "{#SourceDir}\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#AssetsDir}\VoxTypeX.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

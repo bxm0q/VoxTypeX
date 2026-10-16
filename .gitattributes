@@ -5,3 +5,5 @@
 *.lock text eol=lf
 *.spec text eol=lf
 *.ps1 text eol=crlf
+# Preserve whitespace in the verbatim upstream model license.
+packaging/licenses/MOONSHINE-COMMUNITY.txt -whitespace

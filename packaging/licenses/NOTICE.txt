@@ -1,0 +1,17 @@
+Optional Moonshine Ukrainian Base model
+
+This Moonshine AI Model is licensed under the Moonshine AI Community License, Copyright © Moonshine AI Ltd. All Rights Reserved
+
+Powered by Moonshine AI
+Agreement: MOONSHINE-COMMUNITY.txt (in this directory).
+The model is downloaded separately; its weights are not bundled with VoxTypeX.
+VoxTypeX does not modify the downloaded GGUF file.
+GGUF conversion: handy-computer/moonshine-base-uk-gguf.
+Upstream: https://github.com/moonshine-ai/moonshine
+
+Other optional speech models (also downloaded separately):
+GigaAM v3 e2e RNNT: AI Sage, MIT; https://huggingface.co/ai-sage/GigaAM-v3
+Canary 180M Flash: NVIDIA, CC-BY-4.0; https://huggingface.co/nvidia/canary-180m-flash
+Parakeet TDT 0.6B v3: NVIDIA, CC-BY-4.0; https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+GGUF conversions: handy-computer; exact revisions and SHA256: model_catalog.json.
+CC-BY-4.0: https://creativecommons.org/licenses/by/4.0/

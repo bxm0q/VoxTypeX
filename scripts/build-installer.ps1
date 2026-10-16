@@ -1,4 +1,4 @@
-﻿param([switch]$SkipAppBuild, [string]$CompilerPath = "")
+﻿param([switch]$SkipAppBuild, [string]$CompilerPath = "", [string]$BuildPython = "")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
@@ -35,7 +35,8 @@ $CompilerPath = (Resolve-Path -LiteralPath $CompilerPath).Path
 $assetsDir = Join-Path $root "build\installer-assets"
 & "$PSScriptRoot\installer-art.ps1" -OutputDir $assetsDir
 # Refresh the distributed instructions without changing the compiled application.
-& "$root\.venv-build\Scripts\python.exe" "$PSScriptRoot\release_files.py"
+if (-not $BuildPython) { $BuildPython = Join-Path $root ".local\build-venv\Scripts\python.exe" }
+& $BuildPython "$PSScriptRoot\release_files.py"
 if ($LASTEXITCODE -ne 0) { throw "Release files could not be prepared." }
 & $CompilerPath "/Q" "/DAppVersion=$appVersion" "/DSourceDir=$sourceDir" "/DAssetsDir=$assetsDir" "/DOutputDir=$root\dist" "$root\packaging\installer.iss"
 if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed." }

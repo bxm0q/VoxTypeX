@@ -28,7 +28,7 @@ def run(directory, speech_wav):
 
     entry = importlib.import_module("voxtypex.main")
     store = SettingsService(directory / "settings.json")
-    store.save(Settings(whisper_model=os.environ.get("VOXTYPEX_SMOKE_MODEL", "small")))
+    store.save(Settings(whisper_model=os.environ.get("VOXTYPEX_SMOKE_MODEL", "small"), enabled=False))
     original_start = entry.TrayApplication.start
     finished = Event()
 
@@ -62,7 +62,7 @@ def run(directory, speech_wav):
                 report["checks"].append("microphone_callbacks")
                 result = runtime.service.transcriber.transcribe(AudioClip(pcm, 16000))
                 assert not result.error and result.text, result.error or "Empty transcription"
-                report.update(text=result.text, processing_seconds=result.processing_time)
+                report.update(characters=len(result.text), processing_seconds=result.processing_time)
                 report["checks"].append("frozen_whisper_process_and_vad")
             except Exception as exc:
                 report["errors"].append(repr(exc))

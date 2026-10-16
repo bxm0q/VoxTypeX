@@ -36,5 +36,12 @@ docs/*
 !docs/MANUAL_SMOKE_TEST.md
 !docs/SETTINGS.md
 !docs/DEVELOPMENT.md
+!docs/ARCHITECTURE.md
+!docs/LOCAL_MODELS.md
+!docs/ASR_BENCHMARK.md
+!docs/ITERATION2_REPORT.md
+!docs/ASR_BENCHMARK_RESULTS.json
+*.gguf
+*.part
 tests/*
 !tests/test_*.py

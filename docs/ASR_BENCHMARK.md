@@ -1,7 +1,6 @@
 # Воспроизводимое сравнение ASR
 
-Новые модели не объявляются лучше Whisper без измерений на одинаковых записях.
-Для каждого языка сравниваются компактный/точный профили и Whisper tiny/base/small.
+Для RU/UK/EN сравниваются компактный и точный профили, Whisper tiny/base/small.
 Все варианты получают одинаковый mono PCM16 WAV 16 кГц; устройства принудительно CPU.
 Первый warmup не входит в WER/CER и время измерения. RAM включает загрузку модели.
 
@@ -18,12 +17,12 @@ python scripts/fetch_benchmark_corpus.py
 Большие архивы читаются потоком; извлекаются только выбранные WAV. Ничего не
 скачивается в pytest. Собственные WAV можно описать теми же полями manifest.
 
-Установите модели явно через настройки; Whisper tiny/base/small нужно один раз
+Установите модели через настройки; Whisper tiny/base/small нужно один раз
 скачать обычной диктовкой с выбранной моделью. Сам benchmark ничего не скачивает.
 
 ```powershell
 $env:HF_HUB_OFFLINE='1'
-python scripts/benchmark_asr.py --manifest .local/iteration2-benchmark/manifest.json --out .local/iteration2-benchmark/results
+python scripts/benchmark_asr.py --manifest .local/asr-benchmark/manifest.json --out .local/asr-benchmark/results
 ```
 
 Для другого кэша передайте `--cache-dir`. `--limit-per-language 3` позволяет
@@ -38,9 +37,8 @@ GetProcessMemoryInfo; для CPU VRAM равна 0, недоступный GPU-�
 
 `read` — реальная публичная прочитанная речь. `noise` — тот же клип с
 воспроизводимым Gaussian noise, seed 17, SNR 20 dB до PCM16 saturation.
-Это синтетический шум, а не запись шумного помещения. Разговорных клипов с
-эталоном пользователь не предоставил: разговорная речь, акценты вне выборки,
-живая диктовка и микрофон пользователя остаются непроверенными.
+В корпусе используется синтетический шум. Разговорная речь, акценты вне выборки
+и записи с пользовательского микрофона в сравнение не входят.
 
 Ошибки считаются пустой гипотезой и явно отмечаются. При native fallback
 результат Whisper не засчитывается как точность GGUF. Отчёты JSON/CSV содержат

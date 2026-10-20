@@ -52,6 +52,7 @@ for package in runtime_packages:
 (APP / "docs").mkdir(exist_ok=True)
 for name in (
     "MANUAL_SMOKE_TEST.md",
+    "DEVELOPMENT.md",
     "SETTINGS.md",
     "LOCAL_MODELS.md",
     "ASR_BENCHMARK.md",
@@ -92,11 +93,8 @@ source_files += [
         "LOCAL_MODELS.md",
         "ASR_BENCHMARK.md",
         "ASR_BENCHMARK_RESULTS.json",
-        "ITERATION2_REPORT.md",
         "AUDIO_PIPELINE.md",
-        "ITERATION3_REPORT.md",
         "TRANSCRIPT_PREVIEW.md",
-        "ITERATION4_REPORT.md",
     )
 ]
 source_files += [ROOT / "src/voxtypex/model_catalog.json", ROOT / "packaging/native-runtime.json"]

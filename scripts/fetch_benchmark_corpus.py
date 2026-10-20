@@ -1,4 +1,4 @@
-"""Explicit download of a small, pinned FLEURS real-speech test sample."""
+"""Fetch a pinned FLEURS speech sample."""
 import argparse
 import hashlib
 import io
@@ -168,7 +168,7 @@ def fetch(output, languages, count, max_download_mib=256):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path(".local/iteration2-benchmark"))
+    parser.add_argument("--out", type=Path, default=Path(".local/asr-benchmark"))
     parser.add_argument("--languages", nargs="+", choices=CONFIGS, default=list(CONFIGS))
     parser.add_argument("--count", type=int, default=12)
     parser.add_argument("--max-download-mib", type=int, default=256)

@@ -4,7 +4,7 @@
 
 ## Запуск из исходников
 
-Проверенная сборочная среда этой итерации — Python **3.13 x64**, Windows 11.
+Сборочная среда — Python **3.13 x64**, Windows 11.
 Исходники требуют Python 3.12+; другой интерпретатор нужно проверять отдельно
 с нативными зависимостями.
 В PowerShell из корня проекта:
@@ -53,8 +53,7 @@ commit, проверяет зависимости, Ruff и unit tests,
 использует тот же `.exe`, не создавая второе приложение. Спецификация явно собирает
 DLL CTranslate2 и ONNX-ресурсы Silero VAD; штатные hooks собирают PySide6,
 NumPy, PyAV, ONNX Runtime и PortAudio. Модели, аудио, IDE, `.local` и окружения
-не поставляются. Версии закреплены для повторяемого процесса;
-ZIP не обещает побитовой идентичности.
+не поставляются.
 
 Звуковой тракт включает WebRTC NS/VAD. Локальный hook `packaging/hooks/hook-webrtcvad.py`
 сохраняет метаданные именно `webrtcvad-wheels`; для `pywebrtc-audio` сохраняются
@@ -66,14 +65,13 @@ ZIP не обещает побитовой идентичности.
 .\scripts\smoke.ps1 -SpeechWav "C:\test\speech.wav"
 ```
 
-Проверяются настоящий трей, настройки, callbacks микрофона, frozen-процесс Whisper
+Проверяются трей, настройки, callbacks микрофона, frozen-процесс Whisper
 с VAD и штатный выход. Тест использует отдельный профиль в `.local`;
 диагностический `result.json` содержит число символов, без текста тестовой фразы.
 Затем выполните [сценарий с Блокнотом](MANUAL_SMOKE_TEST.md).
-Автоматический smoke test не заменяет реальную диктовку.
 
 Проверка нативного шумоподавления, VAD, тихой речи, точного bypass и повторного
-открытия настоящего микрофона без ASR:
+открытия микрофона без ASR:
 
 ```powershell
 .\scripts\smoke-audio.ps1 -SpeechWav "C:\test\speech.wav"
@@ -86,17 +84,13 @@ ZIP не обещает побитовой идентичности.
 [публичный корпус](ASR_BENCHMARK.md) и выполните:
 
 ```powershell
-$env:VOXTYPEX_MODEL_DIR="$PWD/.local/mvp-models"
-.\scripts\smoke-local-models.ps1 -Manifest .local/iteration2-benchmark/manifest.json
+$env:VOXTYPEX_MODEL_DIR="$PWD/.local/models"
+.\scripts\smoke-local-models.ps1 -Manifest .local/asr-benchmark/manifest.json
 ```
 
-Проверяются настоящий frozen-worker, RU/UK/EN без fallback, повторное использование,
+Проверяются frozen-worker, RU/UK/EN без fallback, повторное использование,
 смена языка, длинная запись, отмена, повторный запуск, освобождение при простое,
 переход Auto/Whisper ↔ явный язык с закрытием предыдущей модели и выход.
-
-Перед первой публикацией прошли 202 unit tests, smoke test собранного EXE,
-скачивание модели в пустой кэш и три живые диктовки в Блокнот.
-Проверка выполнена на машине разработчика; это не проверка на чистой Windows.
 
 ### Установщик
 
@@ -126,16 +120,13 @@ $env:VOXTYPEX_MODEL_DIR="$PWD/.local/mvp-models"
 .\scripts\smoke-installer.ps1 -SpeechWav "C:\test\speech.wav"
 ```
 
-Добавьте `-NativeManifest .local/iteration2-benchmark/manifest.json`, чтобы также
+Добавьте `-NativeManifest .local/asr-benchmark/manifest.json`, чтобы также
 проверить RU/UK/EN и native DLL из установленной папки. Модели должны быть уже
 установлены в кэш, заданный `VOXTYPEX_MODEL_DIR`.
 
 Тест использует отдельную папку с пробелами и кириллицей, временно создаёт ярлыки
 и автозапуск, затем удаляет тестовую установку. При уже установленном VoxTypeX
 или существующих одноимённых ярлыках тест останавливается, чтобы не затронуть их.
-На машине разработчика прошли установка в папку с кириллицей, проверка ярлыков
-и автозапуска, запуск установленного EXE с реальным микрофоном и Whisper,
-переустановка со снятыми галочками и удаление с сохранением настроек.
 
 ## Структура проекта
 

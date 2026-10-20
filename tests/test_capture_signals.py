@@ -89,7 +89,7 @@ def test_native_vad_does_not_confirm_stationary_noise_at_recording_start(noise, 
 
 
 def existing_english_pcm():
-    manifest = Path(__file__).resolve().parents[1] / ".local/iteration2-benchmark/manifest.json"
+    manifest = Path(__file__).resolve().parents[1] / ".local/asr-benchmark/manifest.json"
     if not manifest.is_file():
         pytest.skip("Existing ignored FLEURS corpus is not available")
     rows = json.loads(manifest.read_text(encoding="utf-8"))["clips"]

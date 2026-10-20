@@ -1,4 +1,4 @@
-"""Opt-in real-speech evaluation. No downloads, hypotheses, or user audio in reports."""
+"""WER/CER benchmark for cached speech clips."""
 import argparse
 import csv
 import hashlib
@@ -580,8 +580,8 @@ def main():
     from voxtypex.config import model_directory
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path(".local/iteration2-benchmark/manifest.json"))
-    parser.add_argument("--out", type=Path, default=Path(".local/iteration2-benchmark/results"))
+    parser.add_argument("--manifest", type=Path, default=Path(".local/asr-benchmark/manifest.json"))
+    parser.add_argument("--out", type=Path, default=Path(".local/asr-benchmark/results"))
     parser.add_argument("--cache-dir", type=Path, default=model_directory())
     parser.add_argument("--languages", nargs="+", choices=("ru", "uk", "en"), default=["ru", "uk", "en"])
     parser.add_argument(

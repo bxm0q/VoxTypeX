@@ -38,12 +38,9 @@ docs/*
 !docs/ARCHITECTURE.md
 !docs/LOCAL_MODELS.md
 !docs/ASR_BENCHMARK.md
-!docs/ITERATION2_REPORT.md
 !docs/ASR_BENCHMARK_RESULTS.json
 !docs/AUDIO_PIPELINE.md
-!docs/ITERATION3_REPORT.md
 !docs/TRANSCRIPT_PREVIEW.md
-!docs/ITERATION4_REPORT.md
 *.gguf
 *.part
 tests/*

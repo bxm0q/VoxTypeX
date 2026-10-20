@@ -1,8 +1,7 @@
 # Архитектура VoxTypeX
 
-Сохраняется локальная PTT-диктовка. В итерации 2 добавлены отдельные модели
-RU/UK/EN, загрузчик в UI и CPU runtime transcribe.cpp в spawn-worker.
-Перевод и обработка через AI остаются только контрактами.
+Диктовка запускается по удержанию клавиши. Whisper и отдельные модели RU/UK/EN
+работают в дочерних процессах; Qt-интерфейс управляет настройками и показывает состояние.
 
 ## Границы компонентов
 
@@ -24,10 +23,8 @@ RU/UK/EN, загрузчик в UI и CPU runtime transcribe.cpp в spawn-worker
 `interfaces.py` содержит Protocol и dataclass, не импортирует Qt или ASR SDK.
 `ModelRegistry` описывает каталог; `WhisperModelRegistry` используется UI и
 менеджером моделей. `ModelManager.resolve()` возвращает проверенный локальный
-путь. `TranslationProvider.translate()` и `AIProvider.transform()` принимают
-`TranscriptionResult`, `OperationContext` и необязательный `ProgressSink` и
-возвращают результат того же типа. Встраивать их нужно между ASR и вставкой;
-им запрещено самостоятельно управлять фокусом или отправлять клавиши.
+путь. Дополнительные обработчики текста подключаются между ASR и вставкой,
+получают `TranscriptionResult` и `OperationContext` и не управляют фокусом.
 
 ## Сессия, отмена и прогресс
 
@@ -91,7 +88,7 @@ backend журналируются по типу/категории, без со
 Прежний opt-in `debug_wav` сохраняет диагностический WAV вне логов; по умолчанию
 выключен и не включается миграцией.
 
-## Совместимость и следующие шаги
+## Предпросмотр и совместимость
 
 `PreviewWorker` читает обработанные VAD-окна через `MicrophoneRecorder.preview_audio`.
 У него отдельный operation-context и одна задача inference. Перед финальной
@@ -100,7 +97,7 @@ inserter вызывается только с финальным `TranscriptionR
 `TranscriptBuffer` хранится одно событие partial/final/reset с session/generation/
 sequence; Qt читает его таймером. Прежний metadata-only ProgressBuffer сохранён.
 Все текущие ASR имеют `batch_preview=true`, `streaming=false`,
-`partial_results=false`; повторы batch не выдают за streaming. Настройки v6,
+`partial_results=false`. Настройки v6,
 порог контекста, дедупликация и измерения описаны в [TRANSCRIPT_PREVIEW.md](TRANSCRIPT_PREVIEW.md).
 
 - Windows 10/11 x64, tray, текущие клавиши, Esc и безопасная вставка сохранены.
@@ -113,5 +110,5 @@ sequence; Qt читает его таймером. Прежний metadata-only 
   данные и модели не включаются в архив исходников или установщик.
 - Следующий ASR должен реализовать ASRBackend и изолировать native-задачи.
   Новые поля Settings добавляются только вместе с рабочей реализацией/миграцией.
-  Перевод/AI должны проверять context до/после внешнего вызова; только
-  RecordingService может передать итоговый текст существующему inserter.
+  Обработчики проверяют context до и после внешнего вызова; только
+  RecordingService передаёт итоговый текст inserter.

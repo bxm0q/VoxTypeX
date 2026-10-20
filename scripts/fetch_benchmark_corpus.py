@@ -1,5 +1,4 @@
 """Explicit download of a small, pinned FLEURS real-speech test sample."""
-
 import argparse
 import hashlib
 import io
@@ -33,7 +32,6 @@ def parse_tsv(text):
 
 
 def to_pcm16_wav(original):
-    """Convert FLEURS IEEE float32 WAV to a common PCM16 input without resampling."""
     import numpy as np
 
     if original[:4] != b"RIFF" or original[8:12] != b"WAVE":

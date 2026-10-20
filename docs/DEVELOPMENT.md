@@ -46,8 +46,8 @@ commit, проверяет зависимости, Ruff и unit tests,
 затем собирает PyInstaller **onedir / windowed**. Результат:
 
 - `dist\VoxTypeX\VoxTypeX.exe` и `_internal` с Python, Qt, PortAudio и библиотеками STT.
-- `dist\VoxTypeX-0.1.2-win-x64.zip` и контрольная сумма SHA256.
-- `dist\VoxTypeX-0.1.2-source.zip` — чистые исходники для разработки и публикации.
+- `dist\VoxTypeX-0.1.3-win-x64.zip` и контрольная сумма SHA256.
+- `dist\VoxTypeX-0.1.3-source.zip` — чистые исходники для разработки и публикации.
 
 `packaging\launcher.py` вызывает `freeze_support()` до Qt: дочерний процесс ASR
 использует тот же `.exe`, не создавая второе приложение. Спецификация явно собирает
@@ -55,6 +55,10 @@ DLL CTranslate2 и ONNX-ресурсы Silero VAD; штатные hooks соби
 NumPy, PyAV, ONNX Runtime и PortAudio. Модели, аудио, IDE, `.local` и окружения
 не поставляются. Версии закреплены для повторяемого процесса;
 ZIP не обещает побитовой идентичности.
+
+Звуковой тракт включает WebRTC NS/VAD. Локальный hook `packaging/hooks/hook-webrtcvad.py`
+сохраняет метаданные именно `webrtcvad-wheels`; для `pywebrtc-audio` сохраняются
+также `pywebrtc_audio.libs` и полные лицензии. [Настройки звука](AUDIO_PIPELINE.md).
 
 Проверка `.exe` с собственной тестовой фразой в WAV mono PCM16 / 16 кГц:
 
@@ -67,6 +71,16 @@ ZIP не обещает побитовой идентичности.
 диагностический `result.json` содержит число символов, без текста тестовой фразы.
 Затем выполните [сценарий с Блокнотом](MANUAL_SMOKE_TEST.md).
 Автоматический smoke test не заменяет реальную диктовку.
+
+Проверка нативного шумоподавления, VAD, тихой речи, точного bypass и повторного
+открытия настоящего микрофона без ASR:
+
+```powershell
+.\scripts\smoke-audio.ps1 -SpeechWav "C:\test\speech.wav"
+```
+
+Скрипт не сохраняет запись микрофона; результат содержит только метрики и названия
+проверок. Для ZIP распакуйте архив и передайте `-Exe` с путём к распакованному EXE.
 
 Для проверки трёх локальных моделей установите их в тестовый кэш, подготовьте
 [публичный корпус](ASR_BENCHMARK.md) и выполните:
@@ -101,7 +115,7 @@ $env:VOXTYPEX_MODEL_DIR="$PWD/.local/mvp-models"
 .\scripts\build-installer.ps1 -SkipAppBuild
 ```
 
-Результат: `dist\VoxTypeX-0.1.2-setup-x64.exe` и файл SHA256. Установщик включает
+Результат: `dist\VoxTypeX-0.1.3-setup-x64.exe` и файл SHA256. Установщик включает
 всю готовую папку приложения, библиотеки и уведомления о лицензиях. Whisper
 скачивается при первой диктовке, отдельные модели — кнопкой в настройках.
 Исходный сценарий — `packaging\installer.iss`.

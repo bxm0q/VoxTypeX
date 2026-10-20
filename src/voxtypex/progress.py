@@ -1,5 +1,3 @@
-"""Bounded worker -> GUI mailbox. Publishing never calls a Qt consumer."""
-
 from collections import deque
 from threading import Lock
 

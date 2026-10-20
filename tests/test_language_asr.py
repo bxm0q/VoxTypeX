@@ -19,7 +19,7 @@ def test_language_profiles_are_validated_and_old_schema_is_preserved(tmp_path):
     original = b'{"schema_version":3,"language":"uk","whisper_model":"base"}'
     path.write_bytes(original)
     settings = SettingsService(path).load()
-    assert settings.schema_version == 4
+    assert settings.schema_version == 6
     assert settings.whisper_model == "base"
     assert settings.uk_quality == "compact"
     assert path.with_name("settings.json.v3.bak").read_bytes() == original
@@ -137,7 +137,7 @@ def test_failed_close_is_retried_without_reusing_terminal_backend(retiring):
         with pytest.raises(WorkerFailed):
             engine.transcribe(audio, None)
     else:
-        engine.transcribe(audio, "en")  # Failure during switch may invoke fallback.
+        engine.transcribe(audio, "en")
     result = engine.transcribe(audio, first_language)
     assert not result.error and result.text == retiring + " replacement"
     assert old.close_calls >= 2
@@ -258,4 +258,4 @@ def test_main_builds_and_reconfigures_the_real_transcriber_factory(tmp_path, mon
     )
     assert main.main() == 0
     assert calls == ["faster-whisper", "transcribe-cpp"]
-    assert SettingsService(tmp_path / "settings.json").load().schema_version == 4
+    assert SettingsService(tmp_path / "settings.json").load().schema_version == 6

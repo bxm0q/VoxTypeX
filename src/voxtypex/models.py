@@ -1,5 +1,3 @@
-"""Lightweight catalogue; the model manager runs inside the ASR worker."""
-
 from pathlib import Path
 
 from .interfaces import ModelSpec, OperationContext, ProgressEvent, ProgressSink, ProgressStage
@@ -49,7 +47,6 @@ class WhisperModelManager:
             if not self.complete(Path(local_path)):
                 raise FileNotFoundError("Local Whisper model is missing or incomplete")
             return str(Path(local_path))
-        # Heavy imports/downloads stay in the spawned worker, never at module import.
         from faster_whisper.utils import download_model
 
         try:

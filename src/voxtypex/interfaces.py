@@ -14,6 +14,8 @@ class AudioClip:
     sample_rate: int
     channels: int = 1
     sample_width: int = 2
+    # None when VAD is bypassed.
+    speech_detected: bool | None = None
 
     @property
     def samples(self) -> int:
@@ -51,6 +53,45 @@ class TranscriptionResult:
     processing_time: float = 0.0
     error: str | None = None
     error_code: str | None = None
+    cpu_time: float | None = None
+
+
+@dataclass(frozen=True)
+class EngineCapabilities:
+    partial_results: bool = False
+    streaming: bool = False
+    batch_preview: bool = False
+
+
+@dataclass(frozen=True)
+class AudioPreview:
+    audio: AudioClip
+    start_sample: int
+    end_sample: int
+    captured_samples: int
+    speech_end_sample: int
+    segment_final: bool = False
+
+
+class TranscriptKind(StrEnum):
+    PARTIAL = "partial"
+    FINAL = "final"
+    RESET = "reset"
+
+
+@dataclass(frozen=True)
+class TranscriptEvent:
+    session_id: int
+    generation: int
+    sequence: int
+    kind: TranscriptKind
+    stable_text: str = ""
+    unstable_text: str = ""
+    mode: str = "preview"
+
+    @property
+    def text(self) -> str:
+        return " ".join(filter(None, (self.stable_text, self.unstable_text)))
 
 
 class OperationCancelled(RuntimeError):
@@ -63,11 +104,7 @@ class OperationTimeout(TimeoutError):
 
 @dataclass(frozen=True)
 class OperationContext:
-    """One request; cancellation is shared, deadlines use a monotonic clock.
-
-    This object stays in its owner process. Native workers are cancelled by
-    terminating their process, not by pickling a threading.Event through IPC.
-    """
+    """Shared cancellation and a monotonic deadline; stays in the owner process."""
 
     request_id: int
     cancelled: Event = field(default_factory=Event)
@@ -97,7 +134,7 @@ class ProgressStage(StrEnum):
 
 @dataclass(frozen=True)
 class ProgressEvent:
-    # Metadata only: no transcript, selected text, audio, target or exception body.
+    # Keep audio, transcript and selected text out of progress events.
     request_id: int
     stage: ProgressStage
 
@@ -106,6 +143,8 @@ ProgressSink = Callable[[ProgressEvent], None]
 
 
 class ASRBackend(Protocol):
+    capabilities: EngineCapabilities
+
     def transcribe(
         self,
         audio: AudioClip,
@@ -159,8 +198,6 @@ class SpeechPipeline(Protocol):
 
 
 class TranslationProvider(Protocol):
-    """Extension boundary only; no network provider is installed or called."""
-
     def translate(
         self,
         result: TranscriptionResult,

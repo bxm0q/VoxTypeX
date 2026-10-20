@@ -11,7 +11,7 @@ def test_repeat_unrelated_and_key_change_while_held():
     gate.event(KEY_CODES["f8"], True)
     gate.event(KEY_CODES["right_alt"], False)
     gate.event(KEY_CODES["right_alt"], True)
-    gate.event(KEY_CODES["f8"], False)  # A key held across reassignment needs a fresh edge.
+    gate.event(KEY_CODES["f8"], False)
     gate.event(KEY_CODES["f8"], True)
     gate.event(KEY_CODES["f8"], False)
     gate.event(KEY_CODES["f8"], False)

@@ -1,5 +1,3 @@
-"""Explicit release check using the real application and bundled native libraries."""
-
 import importlib
 import json
 import os
@@ -49,7 +47,7 @@ def run(directory, speech_wav):
                 finished.set()
 
         def probe():
-            recorder = MicrophoneRecorder()
+            recorder = MicrophoneRecorder(settings=Settings(vad_enabled=False))
             try:
                 held = Event()
                 held.set()

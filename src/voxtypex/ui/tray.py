@@ -38,10 +38,19 @@ class TrayApplication:
         self._reported_error = ""
         self._progress_phase = "transcribing"
         self.overlay = StatusOverlay()
+        acknowledge_preview = getattr(service, "acknowledge_preview", None)
+        if acknowledge_preview is not None:
+            self.overlay.hypothesis_visible.connect(acknowledge_preview)
         self.window = SettingsWindow(store, settings)
+        self.window.audio_panel.session.default_binding = getattr(
+            getattr(service, "recorder", None), "default_binding", None
+        )
         self.window.settings_saved.connect(self.apply_settings)
         if service is not None:
             self.window.visibility_changed.connect(service.set_settings_open)
+            rebind = getattr(service, 'request_microphone_rebind', None)
+            if rebind is not None:
+                self.window.microphone_reset_requested.connect(rebind)
         self.icon = application_icon()
         self.window.setWindowIcon(self.icon)
         self.tray = QSystemTrayIcon(self.icon, app)
@@ -125,7 +134,13 @@ class TrayApplication:
             self.tray.setToolTip(label)
             self.status_action.setText(label)
         error = self.service.last_error if self.service is not None else ""
-        self.overlay.update_status(state, error, settings.visual_indication and not self.quitting, progress)
+        self.overlay.update_status(
+            state, error, settings.visual_indication and not self.quitting, progress,
+            getattr(self.service, "preview_status", ""),
+        )
+        if self.service is not None and hasattr(self.service, "drain_transcripts"):
+            for event in self.service.drain_transcripts():
+                self.overlay.update_transcript(event)
         color = "#777777" if not settings.enabled else "#2463a0"
         if settings.enabled and settings.visual_indication:
             color = {

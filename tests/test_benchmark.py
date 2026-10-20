@@ -19,21 +19,18 @@ benchmark = load_script("benchmark_asr")
 
 
 def test_normalization_preserves_ukrainian_letters_and_unifies_apostrophes():
-    # Removing Unicode letters or treating two common apostrophes differently breaks fair scoring.
     assert benchmark.normalize_text("ПРИВІТ, світе! １２３ М’ЯСО") == "привіт світе 123 мясо"
     assert benchmark.normalize_text("м'ясо") == "мясо"
     assert benchmark.normalize_text("Ёлка — їжак") == "ёлка їжак"
 
 
 def test_word_and_character_edit_counts_are_hand_checked():
-    # A word-level-only metric would miss the difference between one wrong character and one wrong word.
     score = benchmark.error_counts("кот", "кит")
     assert score == {"word_errors": 1, "reference_words": 1, "char_errors": 1, "reference_chars": 3}
     assert benchmark.error_counts("a b c", "a x c d")["word_errors"] == 2
 
 
 def test_weighted_aggregates_exclude_warmup_and_keep_failures_visible():
-    # Averaging per-clip percentages or including cold-start warmup gives misleading WER and RTF.
     rows = [
         dict(
             warmup=True,
@@ -76,7 +73,6 @@ def test_weighted_aggregates_exclude_warmup_and_keep_failures_visible():
 
 
 def test_report_csv_has_metrics_and_never_saves_transcripts(tmp_path):
-    # Accidentally dumping the internal inference result leaks hypotheses into the default report.
     report = {
         "schema_version": 1,
         "machine": {},
@@ -98,7 +94,6 @@ def test_report_csv_has_metrics_and_never_saves_transcripts(tmp_path):
 
 
 def test_corpus_tsv_preserves_literal_quotes_in_reference():
-    # FLEURS TSV is tab-delimited text, not CSV-quoted text; CSV parsing can drop fields.
     fetch = load_script("fetch_benchmark_corpus")
     row = '7\ta.wav\t"Hello" world\thello world\th e l l o |\t16000\tFEMALE\n'
     assert fetch.parse_tsv(row)["a.wav"] == {
@@ -111,7 +106,6 @@ def test_corpus_tsv_preserves_literal_quotes_in_reference():
 
 
 def test_corpus_float_wav_conversion_produces_valid_pcm16():
-    # Original FLEURS WAVs contain IEEE float samples; treating them as int16 corrupts all model inputs.
     fetch = load_script("fetch_benchmark_corpus")
     fmt = struct.pack("<HHIIHH", 3, 1, 16000, 64000, 4, 32)
     samples = struct.pack("<fff", -1.0, 0.0, 1.0)
@@ -124,7 +118,6 @@ def test_corpus_float_wav_conversion_produces_valid_pcm16():
 
 
 def test_noise_variant_is_reproducible_and_preserves_sample_count():
-    # Changing RNG state or audio length makes the noisy comparison unfair between models.
     original = struct.pack("<hhhh", 2000, -2000, 1000, -1000) * 100
     first = benchmark.add_noise(original, seed=17, snr_db=20)
     assert len(first) == len(original)
@@ -141,7 +134,6 @@ def test_native_fallback_text_never_receives_native_accuracy_credit():
             progress(ProgressEvent(context.request_id, ProgressStage.FALLBACK))
             return TranscriptionResult(text="the correct words", language="en")
 
-    # A fallback transcript is from Whisper and must not improve the reported native model score.
     row = benchmark.observe_inference(
         FallbackService(),
         AudioClip(b"\0\0" * 16000, 16000),

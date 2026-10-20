@@ -1,5 +1,3 @@
-"""Pinned local speech model catalog. Importing it never loads an ASR runtime."""
-
 import errno
 import hashlib
 import json
@@ -193,11 +191,7 @@ class LanguageModelRegistry:
 
 
 class LanguageModelManager:
-    """Synchronous downloads for a background caller; resolve is always offline.
-
-    INSTALLED means size-complete, READY means this manager verified the SHA256.
-    A cache fingerprint invalidates readiness whenever the artifact changes.
-    """
+    """Download in a worker; READY requires SHA256 verification of the current file."""
 
     def __init__(self, cache_dir, registry=None):
         self.cache_dir = Path(cache_dir).absolute()
@@ -409,8 +403,7 @@ class LanguageModelManager:
                     self._emit(callback, spec, received, LocalModelState.DOWNLOADING, "downloading")
                     while True:
                         context.checkpoint()
-                        # Buffered read(amt) may accumulate many receives on an
-                        # active slow stream. read1 yields each network fragment.
+                        # read1() yields partial network reads so cancellation stays responsive.
                         read_fragment = getattr(response, "read1", None)
                         block = read_fragment(_CHUNK_SIZE) if read_fragment else response.read(1)
                         context.checkpoint()

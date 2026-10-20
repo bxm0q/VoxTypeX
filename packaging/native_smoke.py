@@ -1,5 +1,3 @@
-"""Opt-in frozen check against installed real models and a real-speech manifest."""
-
 import importlib
 import json
 import os
@@ -35,8 +33,7 @@ def run(directory, manifest_path):
         original_start(runtime)
 
         def probe():
-            # This probe owns its pipeline. The application's recording thread
-            # independently runs idle cleanup; sharing its engine would race it.
+            # Use a separate pipeline to avoid racing the service idle cleanup.
             service = None
             try:
                 service = entry.build_transcriber(runtime.service.settings, model_directory())

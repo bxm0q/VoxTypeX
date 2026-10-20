@@ -15,7 +15,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class Settings:
-    schema_version: int = 4
+    schema_version: int = 6
     push_to_talk_key: str = "right_alt"
     debug_wav: bool = False
     whisper_model: str = "small"
@@ -29,6 +29,15 @@ class Settings:
     ru_quality: str = "compact"
     uk_quality: str = "compact"
     en_quality: str = "compact"
+    noise_suppression: str = "off"
+    vad_enabled: bool = True
+    vad_mode: int = 1
+    vad_preroll_ms: int = 300
+    vad_hangover_ms: int = 500
+    auto_stop_silence_seconds: float = 0.0
+    preview_mode: str = "preview"
+    preview_interval_seconds: float = 1.5
+    preview_window_seconds: float = 8.0
 
     def __post_init__(self) -> None:
         if self.whisper_model not in ("tiny", "base", "small"):
@@ -45,8 +54,31 @@ class Settings:
             not isinstance(self.microphone, str) or not self.microphone.strip()
         ):
             raise ConfigError("microphone must be a device identifier or null")
-        if type(self.schema_version) is not int or self.schema_version != 4:
+        if type(self.schema_version) is not int or self.schema_version != 6:
             raise ConfigError("Unsupported settings version")
+        if self.preview_mode not in ("off", "preview"):
+            raise ConfigError("preview_mode must be off or preview; live typing is unavailable")
+        for name, lower, upper in (("preview_interval_seconds", 1, 10), ("preview_window_seconds", 4, 20)):
+            value = getattr(self, name)
+            if type(value) not in (int, float) or not math.isfinite(value) or not lower <= value <= upper:
+                raise ConfigError(f"{name} must be between {lower} and {upper}")
+        if self.noise_suppression not in ("off", "moderate", "strong"):
+            raise ConfigError("noise_suppression must be off, moderate or strong")
+        if type(self.vad_enabled) is not bool:
+            raise ConfigError("vad_enabled must be a boolean")
+        for name, value, lower, upper in (
+            ("vad_mode", self.vad_mode, 0, 3),
+            ("vad_preroll_ms", self.vad_preroll_ms, 200, 400),
+            ("vad_hangover_ms", self.vad_hangover_ms, 300, 1000),
+        ):
+            if type(value) is not int or not lower <= value <= upper:
+                raise ConfigError(f"{name} must be an integer between {lower} and {upper}")
+        if (
+            type(self.auto_stop_silence_seconds) not in (int, float)
+            or not math.isfinite(self.auto_stop_silence_seconds)
+            or (self.auto_stop_silence_seconds != 0 and not 1.5 <= self.auto_stop_silence_seconds <= 10)
+        ):
+            raise ConfigError("auto_stop_silence_seconds must be 0 (disabled) or between 1.5 and 10")
         if self.asr_backend not in ("faster-whisper", "transcribe-cpp"):
             raise ConfigError("Unsupported ASR backend")
         if any(
@@ -75,16 +107,11 @@ def model_directory() -> Path:
     override = os.environ.get("VOXTYPEX_MODEL_DIR")
     if override:
         return Path(override).expanduser().resolve()
-    # Share the model cache across development profiles to avoid duplicate downloads.
     return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local"))) / "VoxTypeX" / "models"
 
 
 class SettingsService:
-    """Single persistence boundary: validated defaults, migrations and atomic saves.
-
-    Owned by the UI thread. Workers receive immutable Settings snapshots only.
-    A newer or corrupt file is never silently overwritten with defaults.
-    """
+    """Validate settings and migrate atomically with a backup."""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path if path is not None else data_directory() / "settings.json"
@@ -96,7 +123,7 @@ class SettingsService:
             return self.current
         original = self.path.read_bytes()
         settings, version = self._decode(original)
-        if version < 4:
+        if version < 6:
             self._backup(original, version)
             self._write(settings, original)
         self.current = settings
@@ -116,16 +143,31 @@ class SettingsService:
             if not isinstance(raw, dict):
                 raise ConfigError("Settings must be a JSON object")
             version = raw.get("schema_version", 1)
-            if type(version) is not int or version not in (1, 2, 3, 4):
+            if type(version) is not int or version not in (1, 2, 3, 4, 5, 6):
                 raise ConfigError("Unsupported settings version; use a compatible VoxTypeX version")
+            if version < 6 and any(
+                key in raw for key in ("preview_mode", "preview_interval_seconds", "preview_window_seconds")
+            ):
+                raise ConfigError("Unknown preview fields in legacy settings")
+            if version < 5 and any(
+                key in raw
+                for key in (
+                    "noise_suppression",
+                    "vad_enabled",
+                    "vad_mode",
+                    "vad_preroll_ms",
+                    "vad_hangover_ms",
+                    "auto_stop_silence_seconds",
+                )
+            ):
+                raise ConfigError("Unknown audio fields in legacy settings")
             if version < 4 and any(key in raw for key in ("ru_quality", "uk_quality", "en_quality")):
                 raise ConfigError("Unknown language profile fields in legacy settings")
             if version < 3:
-                # No invented translation/AI fields: only implemented v3 defaults.
                 if "asr_backend" in raw or "transcription_timeout_seconds" in raw:
                     raise ConfigError("Unknown fields in legacy settings")
-            if version < 4:
-                raw = dict(raw, schema_version=4)
+            if version < 6:
+                raw = dict(raw, schema_version=6)
             settings = Settings(**raw)
             return settings, version
         except (ValueError, TypeError) as exc:
@@ -152,7 +194,7 @@ class SettingsService:
         original = self.path.read_bytes() if self.path.exists() else None
         if original is not None:
             _, version = self._decode(original)
-            if version < 4:
+            if version < 6:
                 self._backup(original, version)
         self._write(settings, original)
 
@@ -168,7 +210,7 @@ class SettingsService:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            # Do not overwrite a file replaced/edited while this save was prepared.
+            # Reject concurrent edits before replacing the settings file.
             current = self.path.read_bytes() if self.path.exists() else None
             if current != original:
                 raise ConfigError("Settings changed on disk; reload before saving")
@@ -184,5 +226,4 @@ class SettingsService:
                     )
 
 
-# Legacy name.
 SettingsStore = SettingsService

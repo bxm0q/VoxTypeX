@@ -1,5 +1,4 @@
 """Build receipts bind a cached wheel to its exact source/options and bytes."""
-
 import argparse
 import hashlib
 import json

@@ -1,8 +1,3 @@
-"""Native memory/INPUT layout checks with an isolated simulated clipboard.
-
-Does not replace the user's Windows clipboard or send desktop input.
-"""
-
 import ctypes as C
 
 from voxtypex.windows_insertion import INPUT_TAG, Input, WindowsInsertion

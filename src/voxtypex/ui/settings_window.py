@@ -1,5 +1,3 @@
-"""Small settings dialog; global PTT is gated for the entire visible session."""
-
 import logging
 from dataclasses import replace
 from threading import Thread
@@ -11,11 +9,13 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -25,10 +25,11 @@ from ..key_policy import KeyCapture, key_name
 from ..microphones import input_devices
 from ..models import WhisperModelRegistry
 from .local_models_panel import LocalModelsPanel
+from .microphone_panel import MicrophonePanel
 
 
 def native_key(event):
-    """Qt/Windows may report generic VK_CONTROL/VK_MENU even for right-hand keys."""
+    """Windows may report generic VK_CONTROL/VK_MENU for right-hand keys."""
     vk, key, scan = event.nativeVirtualKey(), event.key(), event.nativeScanCode()
     if key == Qt.Key.Key_AltGr:
         return 0xA5
@@ -49,6 +50,7 @@ class SettingsWindow(QDialog):
     settings_saved = Signal(object)
     visibility_changed = Signal(bool)
     devices_ready = Signal(int, object, str)
+    microphone_reset_requested = Signal()
 
     def __init__(self, store: SettingsService, settings: Settings, microphone_provider=input_devices):
         super().__init__()
@@ -56,8 +58,13 @@ class SettingsWindow(QDialog):
         self.microphone_provider = microphone_provider
         self.capture = None
         self._devices_generation = 0
+        self._devices_query_active = False
+        self._microphone_reset_pending = False
         self.setWindowTitle("VoxTypeX — настройки")
-        self.setMinimumWidth(470)
+        self.setMinimumWidth(740)
+        screen = QApplication.primaryScreen()
+        height = min(820, screen.availableGeometry().height() - 80) if screen else 820
+        self.resize(800, max(420, height))
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.addWidget(
@@ -78,6 +85,8 @@ class SettingsWindow(QDialog):
         self.capture_status.setWordWrap(True)
         form.addRow(self.capture_status)
         self.microphone = QComboBox()
+        self.microphone.currentTextChanged.connect(self.microphone.setToolTip)
+        self.microphone.activated.connect(self._microphone_activated)
         self.microphone.setMinimumContentsLength(26)
         self.microphone.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.microphone.addItem("По умолчанию в Windows", None)
@@ -90,6 +99,12 @@ class SettingsWindow(QDialog):
         self.device_status = QLabel("")
         self.device_status.setWordWrap(True)
         form.addRow(self.device_status)
+        self.fallback_device = QPushButton("Использовать микрофон по умолчанию Windows…")
+        self.fallback_device.clicked.connect(self.use_windows_default)
+        form.addRow(self.fallback_device)
+        self.audio_panel = MicrophonePanel(self._audio_test_settings)
+        self.microphone.currentIndexChanged.connect(self.audio_panel.cancel_test)
+        form.addRow(self.audio_panel)
         self.language = QComboBox()
         for title, value in (
             ("Автоматически", None),
@@ -119,7 +134,32 @@ class SettingsWindow(QDialog):
         self.asr_backend.currentIndexChanged.connect(self._refresh_local_context)
         self.visual = QCheckBox("Показывать индикатор записи и обработки")
         form.addRow("Индикация", self.visual)
-        layout.addLayout(form)
+        self.preview_mode = QComboBox()
+        self.preview_mode.addItem("Выключен", "off")
+        self.preview_mode.addItem("Предпросмотр в индикаторе", "preview")
+        form.addRow("Текст во время записи", self.preview_mode)
+        self.preview_interval = QDoubleSpinBox()
+        self.preview_interval.setRange(1, 10)
+        self.preview_interval.setSingleStep(0.5)
+        self.preview_interval.setSuffix(" с")
+        form.addRow("Не чаще одного обновления в", self.preview_interval)
+        self.preview_window = QDoubleSpinBox()
+        self.preview_window.setRange(4, 20)
+        self.preview_window.setSuffix(" с")
+        form.addRow("Окно предпросмотра", self.preview_window)
+        self.preview_hint = QLabel(
+            "Whisper tiny/base/small, GigaAM, Moonshine, Canary и Parakeet: batch-предпросмотр, "
+            "без потокового decode. Нужны VAD и индикация. На медленном CPU обновления реже.\n"
+            "В поле попадёт только один итог после отпускания PTT. live-typing недоступен."
+        )
+        self.preview_hint.setWordWrap(True)
+        form.addRow(self.preview_hint)
+        content = QWidget()
+        content.setLayout(form)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
         self.buttons = QDialogButtonBox()
         self.save_button = self.buttons.addButton("Сохранить", QDialogButtonBox.ButtonRole.ApplyRole)
         self.buttons.addButton("Закрыть", QDialogButtonBox.ButtonRole.RejectRole)
@@ -133,6 +173,9 @@ class SettingsWindow(QDialog):
             lambda: self.stop_capture("Назначение отменено: время ожидания истекло.")
         )
         self.devices_ready.connect(self._show_devices)
+        self.devices_timer = QTimer(self)
+        self.devices_timer.setInterval(3000)
+        self.devices_timer.timeout.connect(self.load_devices)
 
     def open_settings(self):
         if self.isVisible():
@@ -140,6 +183,7 @@ class SettingsWindow(QDialog):
             self.activateWindow()
             return
         self.settings = self.store.current
+        self._microphone_reset_pending = False
         self.key_label.setText(key_name(self.settings.push_to_talk_key))
         self.language.setCurrentIndex(self.language.findData(self.settings.language))
         self.asr_backend.setCurrentIndex(self.asr_backend.findData(self.settings.asr_backend))
@@ -153,6 +197,10 @@ class SettingsWindow(QDialog):
         else:
             self.model.setCurrentIndex(self.model.findData(self.settings.whisper_model))
         self.visual.setChecked(self.settings.visual_indication)
+        self.preview_mode.setCurrentIndex(self.preview_mode.findData(self.settings.preview_mode))
+        self.preview_interval.setValue(self.settings.preview_interval_seconds)
+        self.preview_window.setValue(self.settings.preview_window_seconds)
+        self.audio_panel.populate(self.settings)
         self.capture_status.setText("Одна клавиша. Новое назначение сохраняется сразу.")
         self._select_microphone(self.settings.microphone)
         self.visibility_changed.emit(True)
@@ -160,6 +208,37 @@ class SettingsWindow(QDialog):
         self.raise_()
         self.activateWindow()
         self.load_devices()
+        self.devices_timer.start()
+
+    def _audio_test_settings(self):
+        return replace(
+            self.store.current, microphone=self.microphone.currentData(), **self.audio_panel.selected_values()
+        )
+
+    def use_windows_default(self):
+        if (
+            QMessageBox.question(
+                self,
+                "VoxTypeX — сменить микрофон?",
+                "Выбрать и сохранить текущий микрофон по умолчанию Windows? "
+                "Запись будет использовать другое устройство только после этого подтверждения.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        settings = replace(self.store.current, microphone=None)
+        if self._persist(settings):
+            self._microphone_reset_pending = False
+            self.microphone_reset_requested.emit()
+            self.audio_panel.cancel_test()
+            self._select_microphone(None)
+            self.device_status.setText("Выбран микрофон по умолчанию Windows.")
+
+    def _microphone_activated(self, index):
+        # Only user activation permits rebinding the default microphone.
+        self._microphone_reset_pending = self.microphone.itemData(index) is None
 
     def _select_microphone(self, identity):
         index = self.microphone.findData(identity)
@@ -175,37 +254,51 @@ class SettingsWindow(QDialog):
         )
 
     def load_devices(self):
+        if self._devices_query_active or self.capture is not None or not self.isVisible():
+            return
+        self._devices_query_active = True
         self._devices_generation += 1
         generation = self._devices_generation
         self.refresh_devices.setEnabled(False)
-        self.device_status.setText("Проверяю устройства…")
+        provider = self.microphone_provider
 
         def query():
             try:
-                devices, error = self.microphone_provider(), ""
+                devices = provider(refresh=True) if provider is input_devices else provider()
+                error = ""
             except Exception as exc:
                 logging.getLogger(__name__).exception("Could not enumerate microphones")
                 devices, error = [], str(exc)
             try:
                 self.devices_ready.emit(generation, devices, error)
             except RuntimeError:
-                # Qt receiver may have been destroyed while PortAudio enumerated devices.
+                # The dialog may be gone by the time enumeration finishes.
                 pass
 
         Thread(target=query, name="voxtypex-devices", daemon=True).start()
 
     def _show_devices(self, generation, devices, error):
-        if generation != self._devices_generation:
+        self._devices_query_active = False
+        if generation != self._devices_generation or not self.isVisible():
             return
         selected = self.microphone.currentData()
+        self.microphone.blockSignals(True)
         self.microphone.clear()
-        self.microphone.addItem("По умолчанию в Windows", None)
+        default_label = next((label for _, label, _ in devices if "по умолчанию Windows" in label), "")
+        self.microphone.addItem(
+            f"По умолчанию Windows: {default_label}" if default_label else "По умолчанию в Windows", None
+        )
         for identity, label, _ in devices:
             self.microphone.addItem(label, identity)
+            self.microphone.setItemData(self.microphone.count() - 1, label, Qt.ItemDataRole.ToolTipRole)
         missing = selected is not None and self.microphone.findData(selected) < 0
         if missing:
             self.microphone.addItem("Недоступен — выберите другой микрофон", selected)
         self._select_microphone(selected)
+        self.microphone.blockSignals(False)
+        self.microphone.setToolTip(self.microphone.currentText())
+        if missing:
+            self.audio_panel.cancel_test()
         self.refresh_devices.setEnabled(self.capture is None)
         self.device_status.setText(
             "Не удалось получить список. Нажмите «Обновить»."
@@ -221,6 +314,7 @@ class SettingsWindow(QDialog):
         if self.capture is not None:
             self.stop_capture("Назначение отменено.")
             return
+        self.audio_panel.cancel_test()
         self.capture = KeyCapture()
         self.change_key.setText("Отмена")
         self.capture_status.setText(
@@ -238,6 +332,11 @@ class SettingsWindow(QDialog):
             self.model,
             self.visual,
             self.save_button,
+            self.audio_panel,
+            self.fallback_device,
+            self.preview_mode,
+            self.preview_interval,
+            self.preview_window,
         ):
             widget.setEnabled(enabled)
 
@@ -338,12 +437,22 @@ class SettingsWindow(QDialog):
             visual_indication=self.visual.isChecked(),
             model_path=base.model_path if choice == "local" else None,
             asr_backend=self.asr_backend.currentData(),
+            preview_mode=self.preview_mode.currentData(),
+            preview_interval_seconds=self.preview_interval.value(),
+            preview_window_seconds=self.preview_window.value(),
             **self.local_models.selected_qualities(),
+            **self.audio_panel.selected_values(),
         )
         if self._persist(settings):
+            if self._microphone_reset_pending and settings.microphone is None:
+                self.microphone_reset_requested.emit()
+            self._microphone_reset_pending = False
             self.close()
 
     def hideEvent(self, event):
+        self.devices_timer.stop()
+        self._devices_generation += 1
+        self.audio_panel.cancel_test()
         self.stop_capture()
         self.visibility_changed.emit(False)
         super().hideEvent(event)

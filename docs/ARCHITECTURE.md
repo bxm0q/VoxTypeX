@@ -68,15 +68,15 @@ Pipe передаёт `(request_id, audio, language)` и `(request_id, kind, val
 
 ## Настройки и данные
 
-Схема v4 сохраняет все прежние поля и добавляет только реализованные:
+Схема v6 сохраняет все прежние поля и добавляет только реализованные:
 
 - `asr_backend`: `faster-whisper` или `transcribe-cpp`.
 - `ru_quality`, `uk_quality`, `en_quality`: `compact` или `accurate`.
 - `transcription_timeout_seconds`: общий бюджет обработки после записи,
   1–3600 с, по умолчанию 900 с. Настраивается в JSON при закрытом приложении.
 
-Файлы v1 (включая отсутствие schema_version), v2 и v3 проверяются до миграции.
-Исходные байты сохраняются в `settings.json.v1.bak` / `.v2.bak` / `.v3.bak`; другая
+Файлы v1 (включая отсутствие schema_version), v2–v5 проверяются до миграции.
+Исходные байты сохраняются в `settings.json.vN.bak` соответствующей версии; другая
 существующая копия не перезаписывается. После fsync временного файла выполняется
 `os.replace`. Изменённый за время записи файл вызывает ошибку вместо замены.
 Повреждённый JSON, повторные/неизвестные поля и будущая версия защищены и при
@@ -92,6 +92,16 @@ backend журналируются по типу/категории, без со
 выключен и не включается миграцией.
 
 ## Совместимость и следующие шаги
+
+`PreviewWorker` читает обработанные VAD-окна через `MicrophoneRecorder.preview_audio`.
+У него отдельный operation-context и одна задача inference. Перед финальной
+обработкой RecordingService отменяет context и дожидается выхода preview-потока;
+inserter вызывается только с финальным `TranscriptionResult`. В приватном
+`TranscriptBuffer` хранится одно событие partial/final/reset с session/generation/
+sequence; Qt читает его таймером. Прежний metadata-only ProgressBuffer сохранён.
+Все текущие ASR имеют `batch_preview=true`, `streaming=false`,
+`partial_results=false`; повторы batch не выдают за streaming. Настройки v6,
+порог контекста, дедупликация и измерения описаны в [TRANSCRIPT_PREVIEW.md](TRANSCRIPT_PREVIEW.md).
 
 - Windows 10/11 x64, tray, текущие клавиши, Esc и безопасная вставка сохранены.
 - Python-запуск и frozen launcher используют тот же pipeline. `freeze_support`

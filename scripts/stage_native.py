@@ -1,5 +1,3 @@
-"""Stage the locally compiled CPU provider and license notices for source/frozen use."""
-
 import ctypes
 import hashlib
 import importlib.metadata
@@ -45,7 +43,6 @@ def main():
     stage.mkdir(parents=True, exist_ok=True)
     if not stage.resolve().is_relative_to(ROOT.resolve()) or stage.is_symlink():
         raise RuntimeError("Unsafe native output directory")
-    # Only generated DLLs in this fixed workspace directory are replaced.
     for previous in stage.glob("*.dll"):
         previous.unlink()
     artifacts = list(native.glob("*.dll"))

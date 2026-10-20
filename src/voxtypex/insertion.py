@@ -28,7 +28,6 @@ class TextInsertionService:
         self.changed = Event()
 
     def capture_target(self):
-        """Запоминает активное поле при нажатии PTT, не меняя фокус."""
         return self.backend.capture_target()
 
     def prepare_target(self, target, cancelled, changed):
@@ -62,7 +61,7 @@ class TextInsertionService:
                 result = InsertResult(skipped=True, error="Original field changed before insertion")
             elif lease is not None:
                 method = "clipboard"
-                # Повтор через Unicode после Ctrl+V может продублировать текст.
+                # Повтор после Ctrl+V может продублировать текст.
                 self.backend.paste()
                 result = InsertResult(success=True, method=method)
             else:
@@ -81,7 +80,7 @@ class TextInsertionService:
             result = InsertResult(method=method, error=str(exc))
         finally:
             if lease is not None:
-                # Приложение может прочитать буфер не сразу после SendInput.
+                # Буфер может быть прочитан с задержкой после SendInput.
                 time.sleep(self.restore_delay)
                 try:
                     restored = self.backend.restore_clipboard(lease)

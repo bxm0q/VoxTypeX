@@ -1,5 +1,3 @@
-"""Explicit model installation. Worker threads publish metadata through a queue."""
-
 import logging
 from collections import deque
 from threading import Event, Lock, Thread
@@ -113,7 +111,9 @@ class LocalModelsPanel(QWidget):
             f"<b>{spec.label}</b> — {spec.size_bytes:,} байт · CPU<br>"
             f'Состояние: {states[status]}. <a href="{spec.license_url}">{spec.license}</a>{attribution}<br>'
             "Новый выбор заменит модель языка после сохранения. Старые файлы останутся в кэше. "
-            "«Точная» — более тяжёлый профиль; меньший WER не гарантируется."
+            "«Точная» — более тяжёлый профиль; меньший WER не гарантируется.<br>"
+            "Текст во время речи: batch-предпросмотр по окнам; потокового decode нет. "
+            "При ошибке используется Whisper."
         )
 
     def _publish(self, event):

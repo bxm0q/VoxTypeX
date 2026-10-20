@@ -1,8 +1,7 @@
-"""Language routing and a single fallback; no native imports in this process."""
-
 import logging
 
 from .interfaces import (
+    EngineCapabilities,
     OperationCancelled,
     OperationContext,
     OperationTimeout,
@@ -18,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 class LanguageASRBackend:
+    capabilities = EngineCapabilities(batch_preview=True)
+
     def __init__(self, settings, cache_dir, *, local_factory=None, whisper_factory=None, registry=None):
         if registry is None:
             from .local_models import LanguageModelRegistry
@@ -53,8 +54,7 @@ class LanguageASRBackend:
         return self._device
 
     def _release_local(self):
-        # close() is terminal even when process cleanup fails. Invalidate the
-        # model ID first, retaining the backend only for a cleanup retry.
+        # Clear the model ID before close(); retain the backend for cleanup retries.
         self._local_id = None
         if self._local is not None:
             self._local.close()

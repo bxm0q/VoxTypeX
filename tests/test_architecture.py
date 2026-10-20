@@ -1,5 +1,3 @@
-"""Small import-graph guard, not a framework or runtime dependency."""
-
 import ast
 from importlib.util import resolve_name
 from pathlib import Path

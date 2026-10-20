@@ -39,7 +39,6 @@ class AppController:
             return self._closed
 
     def transition(self, expected: AppState, target: AppState) -> bool:
-        """Reject stale events and invalid transitions under the same lock."""
         with self._lock:
             if self._closed or self._state is not expected or target not in _ALLOWED[expected]:
                 return False

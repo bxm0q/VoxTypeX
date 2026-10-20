@@ -1,4 +1,4 @@
-﻿#ifndef AppVersion
+#ifndef AppVersion
   #error AppVersion must be supplied by scripts/build-installer.ps1
 #endif
 
@@ -64,7 +64,7 @@ Name: "{userdesktop}\VoxTypeX"; Filename: "{app}\VoxTypeX.exe"; WorkingDir: "{ap
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "VoxTypeX"; ValueData: """{app}\VoxTypeX.exe"""; Flags: uninsdeletevalue; Tasks: startup
-; Deselecting startup during a reinstall must also remove the previous entry.
+; Remove the previous startup entry when the option is cleared.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "VoxTypeX"; Flags: deletevalue; Tasks: not startup
 
 [InstallDelete]

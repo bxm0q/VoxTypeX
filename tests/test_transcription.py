@@ -57,6 +57,13 @@ def test_silence_and_short_audio_do_not_load_engine():
     assert not engine.calls
 
 
+def test_audio_confirmed_by_streaming_vad_keeps_a_100ms_phrase():
+    engine = Engine()
+    clip = AudioClip(b'\xc8\x00' * 1600, 16000, speech_detected=True)
+    result = TranscriptionService(engine).transcribe(clip)
+    assert result.text and engine.calls[0][0].pcm == clip.pcm
+
+
 @pytest.mark.parametrize(
     "clip", [AudioClip(b"x", 16000), AudioClip(b"xx", 48000), AudioClip(b"xxxx", 16000, channels=2)]
 )

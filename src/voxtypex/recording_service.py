@@ -12,6 +12,7 @@ from .config import Settings
 from .interfaces import (
     MIN_RECORDING_SECONDS,
     AudioRecorder,
+    EngineCapabilities,
     HotkeyListener,
     OperationContext,
     OperationTimeout,
@@ -20,7 +21,10 @@ from .interfaces import (
     SpeechPipeline,
     TextInserter,
     Transcriber,
+    TranscriptEvent,
+    TranscriptKind,
 )
+from .preview import PreviewMetrics, PreviewWorker, TranscriptBuffer
 from .progress import ProgressBuffer
 from .state import AppController, AppState
 
@@ -36,6 +40,8 @@ class Session:
     changed: Event = field(default_factory=Event)
     target: object = None
     capture_error: str | None = None
+    generation: int = 1
+    released_at: float | None = None
 
 
 class RecordingService:
@@ -63,12 +69,17 @@ class RecordingService:
         self._settings_pending = False
         self._settings_revision = 0
         self._pending_settings = None
+        self._microphone_rebind_pending = False
         self.last_insert_result = None
         self.last_result = None
         self.last_error = ""
         self.completed_count = 0
         self.last_duration = 0.0
         self.last_start_latency = 0.0
+        self.last_preview_metrics = PreviewMetrics()
+        self._preview = None
+        self._preview_status = ""
+        self._transcripts = TranscriptBuffer()
         self._phase = "hotkey"
         self.finished = Event()
         self._closing = Event()
@@ -91,19 +102,76 @@ class RecordingService:
         return getattr(self.transcriber, "progress", "transcribing")
 
     def drain_progress(self):
-        """GUI timer drains metadata; workers never receive a Qt callback."""
         return self._progress.drain()
+
+    def drain_transcripts(self):
+        return self._transcripts.drain()
+
+    def acknowledge_preview(self, event):
+        with self._lock:
+            session = self._reservation
+            if (
+                session is None or self._preview is None or event.kind is not TranscriptKind.PARTIAL
+                or (event.session_id, event.generation) != (session.request_id, session.generation)
+                or session.cancelled.is_set() or session.changed.is_set()
+            ):
+                return
+            metrics = self._preview.metrics
+            if metrics.first_visible_ms is None:
+                metrics.first_visible_ms = (perf_counter() - session.requested_at) * 1000
+
+    @property
+    def preview_status(self):
+        if self._preview is not None and self._preview.error:
+            return "Предпросмотр недоступен. Финальное распознавание — после отпускания PTT."
+        return self._preview_status
+
+    def _invalidate_preview(self, session):
+        if self._preview is not None:
+            self._preview.cancel()
+        generation = self._transcripts.advance(session.request_id)
+        if generation is not None:
+            session.generation = generation
+
+    def _stop_preview(self):
+        if self._preview is not None:
+            self._preview.stop()
+            self.last_preview_metrics = self._preview.metrics
+            self._preview = None
+
+    def _start_preview(self, session):
+        self._preview_status = ""
+        if self.settings.preview_mode == "off":
+            return
+        capabilities = getattr(self.transcriber, "capabilities", EngineCapabilities())
+        source = getattr(self.recorder, "preview_audio", None)
+        if not self.settings.vad_enabled or not self.settings.visual_indication:
+            self._preview_status = "Для предпросмотра включите VAD и индикацию в настройках."
+            return
+        if not capabilities.batch_preview or source is None:
+            self._preview_status = "Предпросмотр для этого движка недоступен."
+            return
+        if session.cancelled.is_set() or session.changed.is_set():
+            return
+        self._preview_status = "Предпросмотр · batch-ASR · текст может измениться"
+        self._preview = PreviewWorker(
+            self.transcriber, source, session.request_id, session.generation, self._transcripts.emit,
+            interval=self.settings.preview_interval_seconds,
+            window_seconds=self.settings.preview_window_seconds,
+            requested_at=session.requested_at, cancelled=session.cancelled, changed=session.changed,
+        )
+        self._preview.start()
 
     def _emit(self, session, stage):
         self._progress.emit(ProgressEvent(session.request_id, stage))
 
     def pressed(self):
-        # Вызывается с помощью хука Windows: без логирования, ввода-вывода или работы с Qt
+        # Windows hook: no I/O or Qt calls.
         with self._lock:
             if self._closing.is_set() or self.finished.is_set() or self._down:
                 return
             self._down = True
-            if not self.enabled or self.settings_open or self._settings_pending:
+            if not self.enabled or self.settings_open or self._settings_pending or self._microphone_rebind_pending:
                 return
             if self._busy or self.controller.state not in (AppState.IDLE, AppState.ERROR):
                 self._commands.put(("ignored", None))
@@ -113,7 +181,6 @@ class RecordingService:
                 try:
                     session.target = self.inserter.capture_target()
                 except Exception as exc:
-                    # Передать диагностику исполнителю; никогда не выполнять вход в хук Windows
                     session.capture_error = f"{type(exc).__name__}: {exc}"
                     session.target = None
             session.held.set()
@@ -128,6 +195,7 @@ class RecordingService:
             session, self._pressed = self._pressed, None
             if session is not None:
                 session.held.clear()
+                session.released_at = perf_counter()
                 self._commands.put(("release", session))
 
     def update_settings(self, settings):
@@ -144,6 +212,12 @@ class RecordingService:
             self.settings_open = opened
         if opened:
             self.cancel_current()
+
+    def request_microphone_rebind(self):
+        with self._lock:
+            if not self._microphone_rebind_pending and not self._closing.is_set():
+                self._microphone_rebind_pending = True
+                self._commands.put(('microphone_rebind', None))
 
     def _apply_settings(self, value, revision):
         try:
@@ -182,7 +256,11 @@ class RecordingService:
             self.transcriber = replacement
         elif self.transcriber is not None:
             self.transcriber.language = value.language
-        self.recorder.device = value.microphone
+        configure_recorder = getattr(self.recorder, 'configure', None)
+        if configure_recorder is not None:
+            configure_recorder(value)
+        else:
+            self.recorder.device = value.microphone
         self.hotkey.set_key(value.push_to_talk_key)
         self.settings = value
         logger.info(
@@ -197,6 +275,7 @@ class RecordingService:
         with self._lock:
             if self._reservation is not None:
                 self._reservation.changed.set()
+                self._invalidate_preview(self._reservation)
 
     def cancel_current(self):
         with self._lock:
@@ -204,6 +283,7 @@ class RecordingService:
             if session is not None:
                 session.cancelled.set()
                 session.held.clear()
+                self._invalidate_preview(session)
                 self._commands.put(("release", session))
 
     def request_close(self):
@@ -224,8 +304,15 @@ class RecordingService:
                 logger.error("Audio shutdown still pending in device driver")
 
     def _error(self, exc):
+        try:
+            self._stop_preview()
+        except TimeoutError:
+            self._closing.set()
+            logger.error("Preview worker did not stop; refusing concurrent inference")
+        if self._reservation is not None:
+            self._invalidate_preview(self._reservation)
         self.last_error = {
-            "microphone": "Микрофон недоступен. Проверьте подключение и выбранное устройство.",
+            "microphone": "Микрофон недоступен или аудиобуфер переполнен. Проверьте подключение; в настройках можно явно выбрать другое устройство.",
             "model": "Не удалось загрузить модель распознавания. Проверьте свободное место и подключение к интернету.",
             "transcription": "Не удалось распознать речь. Повторите попытку или выберите меньшую модель.",
             "timeout": "Превышено время ожидания распознавания. Проверьте интернет или выберите меньшую модель и повторите запись.",
@@ -257,6 +344,8 @@ class RecordingService:
             return
         self._active = session
         self._progress.begin(session.request_id)
+        session.generation = self._transcripts.begin(session.request_id)
+        self.last_preview_metrics = PreviewMetrics()
         self.last_insert_result = None
         self.last_result = None
         self._phase = "microphone"
@@ -270,25 +359,32 @@ class RecordingService:
             self._phase = "insertion"
             self.inserter.prepare_target(session.target, session.cancelled, session.changed)
         self._phase = "microphone"
+        self._start_preview(session)
 
     def _release(self, session):
         logger.info("PTT released")
         if session is not self._active:
-            # Не отменять резервирование для новой сессии после неудачного запуска
+            # Не сбрасывать резервирование новой сессии.
             with self._lock:
                 if self._reservation is session:
                     self._busy = False
                     self._reservation = None
             return
         self._phase = "microphone"
+        final_started = session.released_at or perf_counter()
         clip = self.recorder.stop()
         logger.info("Recording stopped; Duration: %.3f s; Samples: %d", clip.duration, clip.samples)
         self.last_duration = clip.duration
         self._active = None
+        if self.transcriber is not None and not session.cancelled.is_set():
+            self.controller.transition(AppState.RECORDING, AppState.TRANSCRIBING)
+        self._invalidate_preview(session)
+        self._stop_preview()
+        final_generation = session.generation
         if session.cancelled.is_set():
             logger.info("Voice input cancelled")
             self._emit(session, ProgressStage.CANCELLED)
-        elif clip.duration < MIN_RECORDING_SECONDS:
+        elif clip.duration < MIN_RECORDING_SECONDS and clip.speech_detected is not True:
             logger.info("Short recording discarded (< %.0f ms)", MIN_RECORDING_SECONDS * 1000)
         else:
             self.completed_count += 1
@@ -315,14 +411,20 @@ class RecordingService:
                         self._emit(session, ProgressStage.TIMEOUT)
                         raise OperationTimeout("Speech pipeline returned after its deadline")
                     self.last_result = result
+                    self.last_preview_metrics.final_latency_ms = (perf_counter() - final_started) * 1000
                     if result.error:
                         if result.error_code == "model":
                             self._phase = "model"
                         elif result.error_code == "timeout":
                             self._phase = "timeout"
-                        # A provider error can contain private input; log only our category.
+                        # Provider errors may contain private input; log only the category.
                         raise RuntimeError(f"STT failed ({self._phase})")
                     if result.text and result.text.strip():
+                        if not session.changed.is_set():
+                            self._transcripts.emit(TranscriptEvent(
+                                session.request_id, final_generation, 1, TranscriptKind.FINAL,
+                                stable_text=result.text, mode="final",
+                            ))
                         logger.info(
                             "Transcribed in %.2f sec (language=%s, characters=%d)",
                             result.processing_time,
@@ -351,6 +453,12 @@ class RecordingService:
                                 self.controller.transition(AppState.INSERTING, AppState.ERROR)
                     else:
                         logger.info("No speech or valid text detected; nothing to do")
+        metrics = self.last_preview_metrics
+        logger.info(
+            "Preview timing: calls=%d first_ms=%s visible_ms=%s final_ms=%s inference_s=%.3f cpu_pct=%.1f worker_cpu=%s",
+            metrics.calls, metrics.first_hypothesis_ms, metrics.first_visible_ms, metrics.final_latency_ms,
+            metrics.inference_seconds, metrics.cpu_percent, metrics.worker_cpu_measured,
+        )
         if self.controller.state is not AppState.ERROR:
             self.controller.transition(self.controller.state, AppState.IDLE)
         with self._lock:
@@ -381,6 +489,11 @@ class RecordingService:
         try:
             if self.inserter is not None:
                 self.hotkey.set_guard_callbacks(self.context_changed, self.cancel_current)
+            prepare = getattr(self.recorder, 'prepare', None)
+            if prepare is not None:
+                self._phase = 'microphone'
+                prepare()
+            self._phase = 'hotkey'
             self.hotkey.start(self.settings.push_to_talk_key, self.pressed, self.released)
             while not self._closing.is_set():
                 try:
@@ -396,22 +509,33 @@ class RecordingService:
                         self._release(value)
                     elif command == "settings":
                         self._pending_settings = value
+                    elif command == 'microphone_rebind':
+                        self._microphone_rebind_pending = True
                     elif command == "ignored":
                         logger.info("PTT pressed: ignored while busy")
                     if self._active is not None:
                         self._phase = "microphone"
                         self.recorder.check_health()
+                        if getattr(self.recorder, 'auto_stopped', False):
+                            session = self._active
+                            session.held.clear()
+                            self._release(session)
                     if self._pending_settings is not None and not self._busy:
                         self._phase = "settings"
                         (revision, value), self._pending_settings = self._pending_settings, None
                         self._apply_settings(value, revision)
+                    if self._microphone_rebind_pending and not self._busy:
+                        self._phase = 'microphone'
+                        reset = getattr(self.recorder, 'reset_default_device', None)
+                        if reset is not None:
+                            reset()
+                        self._microphone_rebind_pending = False
                     if not self._busy and self.transcriber is not None:
                         idle = getattr(self.transcriber, "release_idle", None)
                         if idle is not None:
                             idle()
                 except Exception as exc:
                     self._error(exc)
-                # Сбой слушания необратим; оставить окно открытым и вывести сообщение об ошибке
                 self._phase = "hotkey"
                 self.hotkey.check_health()
         except Exception as exc:
@@ -419,6 +543,12 @@ class RecordingService:
         finally:
             self._closing.set()
             self.cancel_current()
+            preview_stopped = True
+            try:
+                self._stop_preview()
+            except TimeoutError:
+                preview_stopped = False
+                logger.error("Preview shutdown timed out; engine cleanup remains with its owner")
             try:
                 if self._active is not None:
                     logger.info("Recording cancelled during shutdown")
@@ -430,7 +560,7 @@ class RecordingService:
             except Exception:
                 logger.exception("Hotkey shutdown failed")
             try:
-                if self.transcriber is not None:
+                if self.transcriber is not None and preview_stopped:
                     self.transcriber.close()
             except Exception:
                 logger.exception("STT shutdown failed")

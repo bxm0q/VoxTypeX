@@ -1,5 +1,3 @@
-"""Offline catalog/downloader contracts; payloads are tiny and never model weights."""
-
 import hashlib
 import importlib
 import importlib.util

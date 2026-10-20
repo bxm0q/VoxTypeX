@@ -1,7 +1,7 @@
 from multiprocessing import freeze_support
 
 if __name__ == "__main__":
-    # The Whisper child must enter spawn_main before Qt creates a second tray.
+    # Handle worker spawn before creating Qt objects.
     freeze_support()
 
     import sys
@@ -13,6 +13,14 @@ if __name__ == "__main__":
             exit_code = run(sys.argv[2], sys.argv[3])
         elif len(sys.argv) == 4 and sys.argv[1] == "--smoke-local-models":
             from native_smoke import run
+
+            exit_code = run(sys.argv[2], sys.argv[3])
+        elif len(sys.argv) == 4 and sys.argv[1] == '--smoke-audio':
+            from audio_smoke import run
+
+            exit_code = run(sys.argv[2], sys.argv[3])
+        elif len(sys.argv) == 4 and sys.argv[1] == '--smoke-preview':
+            from preview_smoke import run
 
             exit_code = run(sys.argv[2], sys.argv[3])
         else:

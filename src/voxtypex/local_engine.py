@@ -1,5 +1,3 @@
-"""Reuse the scoped, cancellable spawn/IPC transport for CPU GGUF inference."""
-
 from .local_worker import run_local_worker
 from .whisper_engine import FasterWhisperEngine
 

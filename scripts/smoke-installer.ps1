@@ -1,8 +1,8 @@
-﻿param([Parameter(Mandatory = $true)][string]$SpeechWav,
+param([Parameter(Mandatory = $true)][string]$SpeechWav,
     [string]$Installer = "", [string]$NativeManifest = "")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $Installer) { $Installer = Join-Path $root "dist\VoxTypeX-0.1.2-setup-x64.exe" }
+if (-not $Installer) { $Installer = Join-Path $root "dist\VoxTypeX-0.1.3-setup-x64.exe" }
 $installerPath = (Resolve-Path -LiteralPath $Installer).Path
 $testRoot = Join-Path $root (".local\installer-smoke-" + [guid]::NewGuid().ToString("N"))
 $installDir = Join-Path $testRoot "Установка VoxTypeX"
@@ -53,6 +53,8 @@ try {
     $checks.Add("desktop and Start menu shortcuts; quoted startup entry; Windows uninstall entry")
     & "$PSScriptRoot\smoke.ps1" -Exe $exe -SpeechWav $SpeechWav
     $checks.Add("installed application: tray, settings, microphone, Whisper process, shutdown")
+    & "$PSScriptRoot\smoke-audio.ps1" -Exe $exe -SpeechWav $SpeechWav
+    $checks.Add('installed audio: native DSP/VAD, bit-exact bypass, quiet voice, microphone close/reopen')
     if ($NativeManifest) {
         & "$PSScriptRoot\smoke-local-models.ps1" -Exe $exe -Manifest $NativeManifest
         $checks.Add("installed native worker: RU/UK/EN, long audio, cancel/retry, idle release")
@@ -65,7 +67,7 @@ try {
     $checks.Add("reinstall with desktop shortcut and startup disabled")
 } finally {
     $uninstaller = Join-Path $installDir "unins000.exe"
-    # Only run the uninstaller created inside this test's unique workspace directory.
+    # Uninstall only this test installation.
     $resolvedInstallDir = [System.IO.Path]::GetFullPath($installDir)
     if (-not $resolvedInstallDir.StartsWith([System.IO.Path]::GetFullPath($testRoot) + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Unsafe uninstall target."

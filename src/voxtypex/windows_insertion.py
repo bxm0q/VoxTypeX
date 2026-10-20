@@ -1,5 +1,3 @@
-"""Windows SendInput/clipboard adapter. No focus activation, no clipboard content logs."""
-
 import ctypes as C
 import logging
 import os
@@ -11,7 +9,7 @@ from .key_policy import INPUT_TAG
 
 logger = logging.getLogger(__name__)
 MAX_CLIPBOARD_BYTES = 16 * 1024 * 1024
-# Only formats whose handles are documented global-memory blocks.
+# These clipboard formats use global-memory handles.
 SAFE_FORMATS = {1, 7, 8, 13, 15, 16, 17}
 SAFE_REGISTERED = {"HTML Format", "Rich Text Format", "Rich Text Format Without Objects", "UTF8_STRING"}
 
@@ -161,7 +159,7 @@ class WindowsInsertion:
         except Exception:
             logger.warning("UI Automation unavailable; using window/input guards", exc_info=True)
             runtime_id = None
-        # Legacy controls may not implement UIA; HWND plus input guard remains available.
+        # Legacy controls may expose only HWND, without UIA.
         return Target(target.window, target.process, target.focus, runtime_id)
 
     def target_matches(self, target):
@@ -181,10 +179,7 @@ class WindowsInsertion:
         return True
 
     def dismiss_ptt_menu(self, target):
-        """Right Alt may leave a native menu active; dismiss only on the same target.
-
-        Called only with an unchanged input guard. Never activates the window.
-        """
+        """Dismiss the Alt menu only while the original input guard is unchanged."""
         current = self.capture_target()
         if current is None or (current.window, current.process, current.focus) != (
             target.window,
@@ -245,7 +240,7 @@ class WindowsInsertion:
         success = True
         for index, (fmt, handle) in enumerate(handles):
             if self.u.SetClipboardData(fmt, handle):
-                handles[index] = (fmt, None)  # Ownership transferred to Windows.
+                handles[index] = (fmt, None)  # Windows owns this handle now.
             else:
                 success = False
         return success
@@ -308,7 +303,7 @@ class WindowsInsertion:
                     self.u.GetClipboardSequenceNumber() != lease.sequence
                     or self.u.GetClipboardOwner() != self.window
                 ):
-                    return False  # A newer copy always wins.
+                    return False  # Keep newer clipboard content.
                 if not self.u.EmptyClipboard():
                     return False
                 return self._put_back(lease.handles)
@@ -331,7 +326,7 @@ class WindowsInsertion:
         try:
             self._send([self._key(0x11), self._key(0x56), self._key(0x56, flags=2), self._key(0x11, flags=2)])
         except Exception:
-            # Release only keys used by our attempted chord, then report failure without retrying.
+            # Release only our chord keys; retrying could duplicate input.
             try:
                 self._send([self._key(0x56, flags=2), self._key(0x11, flags=2)])
             except Exception:
@@ -339,7 +334,7 @@ class WindowsInsertion:
             raise
 
     def type_unicode(self, text, valid):
-        # Short chunks limit accidental input after a context change. Surrogate pairs stay together.
+        # Check focus between chunks and keep surrogate pairs together.
         for start in range(0, len(text), 32):
             if not valid():
                 raise RuntimeError("Field changed during Unicode input; partial text may remain")

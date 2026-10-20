@@ -7,8 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 class KeyEdges:
-    """Автоповтор фильтра; запоминать нажатую клавишу при изменении настроек"""
-
     def __init__(self, key, on_press, on_release):
         self.target = KEY_CODES[key]
         self.held = None

@@ -1,6 +1,4 @@
-"""Single-button PTT allowlist shared by settings, capture and Windows hooks."""
-
-# Mark our own injected keystrokes so the input guard does not cancel insertion.
+# Let the input guard distinguish our injected keystrokes.
 INPUT_TAG = 0x56545801
 
 KEY_CODES = {
@@ -31,7 +29,7 @@ def from_vk(vk):
 def modifiers_allowed(vk, held):
     others = set(held) & MODIFIERS
     others.discard(vk)
-    # Windows synthesizes left Ctrl for AltGr. A single Right Alt remains usable.
+    # Windows adds left Ctrl to AltGr.
     if vk == 0xA5:
         others -= {0x11, 0x12, 0xA2}
     elif vk == 0xA3:
@@ -40,7 +38,7 @@ def modifiers_allowed(vk, held):
 
 
 class KeyCapture:
-    """Commit only after release; repeats cannot assign twice or accept a chord."""
+    """Accept a key only after release; ignore repeats and chords."""
 
     def __init__(self):
         self.down = set()

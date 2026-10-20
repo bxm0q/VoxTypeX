@@ -1,6 +1,8 @@
 import gc
 import os
 import traceback
+from dataclasses import replace
+from time import process_time
 
 from .interfaces import TranscriptionResult
 from .models import WhisperModelManager
@@ -79,7 +81,7 @@ class WhisperRuntime:
                 "speech_pad_ms": 200,
             },
         )
-        # Ошибка inference возможна при чтении генератора; fallback должен охватывать и его.
+        # Генератор тоже может вызвать ошибку CUDA.
         text = " ".join(segment.text.strip() for segment in segments).strip()
         return TranscriptionResult(text=text, language=info.language)
 
@@ -111,6 +113,7 @@ def run_worker(connection, cache_dir, model, model_path, force_cpu):
     try:
         while True:
             request_id, audio, language = connection.recv()
+            cpu_started = process_time()
             try:
                 result = runtime.transcribe(audio, language)
             except Exception as exc:
@@ -134,7 +137,7 @@ def run_worker(connection, cache_dir, model, model_path, force_cpu):
                         "; проверьте кэш модели, свободное место и доступ к интернету при первом запуске"
                     )
                 result = TranscriptionResult(error=message, error_code=error_code)
-            connection.send((request_id, "result", result))
+            connection.send((request_id, "result", replace(result, cpu_time=process_time() - cpu_started)))
             del audio, result
     except (EOFError, BrokenPipeError):
         pass

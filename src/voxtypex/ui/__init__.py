@@ -1,1 +1,0 @@
-"""Qt presentation layer."""

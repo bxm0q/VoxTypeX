@@ -1,5 +1,4 @@
 """Opt-in real-speech evaluation. No downloads, hypotheses, or user audio in reports."""
-
 import argparse
 import csv
 import hashlib
@@ -20,7 +19,6 @@ from pathlib import Path
 
 
 def normalize_text(text):
-    """NFKC + casefold; preserve letters/marks/numbers, remove apostrophes, space punctuation."""
     text = unicodedata.normalize("NFKC", text).casefold()
     apostrophes = "'’‘ʼ＇"
     return " ".join(
@@ -187,7 +185,6 @@ CSV_FIELDS = (
 
 
 def write_reports(report, output):
-    """Only approved metadata/metrics are serialized, even if a caller supplies extra result fields."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     safe = {
@@ -233,7 +230,6 @@ def read_audio(item, manifest_dir):
 
 
 def worker_rss(pid):
-    """Actual worker high-water resident bytes. Windows uses its native process memory API."""
     if os.name == "nt":
         import ctypes
         from ctypes import wintypes
@@ -301,7 +297,7 @@ def worker_vram(pid):
             if len(columns) == 2 and columns[0] == str(pid):
                 found = True
                 if not columns[1].isdigit():
-                    return None  # WDDM frequently exposes N/A; it is not zero.
+                    return None
                 total += int(columns[1]) * 1024 * 1024
         return total if found else None
     except (OSError, subprocess.TimeoutExpired):
@@ -346,7 +342,6 @@ class ResourceMonitor:
 
 
 def prepare_model(language, variant, cache_dir):
-    """Resolve already-installed weights only; benchmark execution is always offline."""
     from voxtypex.config import Settings
 
     native = variant in ("compact", "accurate")
@@ -440,7 +435,6 @@ def run_benchmark(args):
     clips = document["clips"] if isinstance(document, dict) else document
     if not clips:
         raise ValueError("Empty corpus")
-    # Persistent benchmark data contains only aggregate metrics and pinned source metadata.
     report = {
         "schema_version": 1,
         "created_utc": datetime.now(UTC).isoformat(),

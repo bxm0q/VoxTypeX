@@ -37,7 +37,7 @@ def main() -> int:
         transcriber = make_transcriber(settings)
         service = RecordingService(
             AppController(),
-            MicrophoneRecorder(device=settings.microphone),
+            MicrophoneRecorder(device=settings.microphone, settings=settings),
             GlobalHotkey(),
             settings,
             directory,

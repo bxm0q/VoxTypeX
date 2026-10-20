@@ -1,5 +1,3 @@
-"""PCM validation and digital-silence gate; no native ASR imports."""
-
 import sys
 from array import array
 
@@ -11,7 +9,7 @@ class PCM16Processor:
         context.checkpoint()
         if audio.channels != 1 or audio.sample_width != 2 or audio.sample_rate != 16000 or len(audio.pcm) % 2:
             raise ValueError("STT requires mono PCM16 at 16000 Hz")
-        if audio.duration < MIN_RECORDING_SECONDS:
+        if audio.duration < MIN_RECORDING_SECONDS and audio.speech_detected is not True:
             return None
         samples = array("h", audio.pcm)
         if sys.byteorder != "little":
@@ -20,5 +18,4 @@ class PCM16Processor:
         for start in range(0, len(samples), 4096):
             context.checkpoint()
             energy += sum(sample * sample for sample in samples[start : start + 4096])
-        # Same RMS threshold as the previous float32 implementation (0.0001).
         return audio if energy / len(samples) >= (32768 * 0.0001) ** 2 else None

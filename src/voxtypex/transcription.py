@@ -10,6 +10,7 @@ from .interfaces import (
     ASRBackend,
     AudioClip,
     AudioProcessor,
+    EngineCapabilities,
     OperationCancelled,
     OperationContext,
     OperationTimeout,
@@ -21,6 +22,8 @@ from .interfaces import (
 
 
 class SpeechEngine(Protocol):
+    capabilities: EngineCapabilities
+
     def transcribe(self, audio: AudioClip, language: str | None) -> TranscriptionResult: ...
     def cancel(self) -> None: ...
     def close(self) -> None: ...
@@ -36,11 +39,7 @@ def clean_text(text) -> str:
 
 
 class TranscriptionService:
-    """The local SpeechPipeline: validate/process -> ASR -> clean text.
-
-    run() is the cancellable API. transcribe() retains the legacy two-argument
-    engine boundary for existing integrations. Neither path inserts text.
-    """
+    """Cancellable speech pipeline with legacy transcribe() support."""
 
     def __init__(
         self,
@@ -57,6 +56,10 @@ class TranscriptionService:
     @property
     def progress(self):
         return getattr(self.engine, "phase", "transcribing")
+
+    @property
+    def capabilities(self):
+        return getattr(self.engine, "capabilities", EngineCapabilities())
 
     def transcribe(self, audio: AudioClip) -> TranscriptionResult:
         return self._transcribe(audio, OperationContext(0), None, legacy=True)
@@ -118,7 +121,7 @@ class TranscriptionService:
                 error_code="cancelled" if cancelled else "timeout",
             )
         except Exception as exc:
-            # Providers may echo their private input in an exception message.
+            # Provider exceptions may echo private input.
             logging.getLogger(__name__).error("Speech pipeline failed (%s)", type(exc).__name__)
             emit(ProgressStage.FAILED)
             return TranscriptionResult(

@@ -46,7 +46,7 @@ def test_v1_migration_preserves_values_and_exact_backup(tmp_path):
     path.write_text(original, encoding="utf-8")
     store = SettingsStore(path)
     value = store.load()
-    assert value.schema_version == 4 and value.language == "uk" and value.debug_wav
+    assert value.schema_version == 6 and value.language == "uk" and value.debug_wav
     assert value.enabled and value.visual_indication and value.microphone is None
     assert path.with_name("settings.json.v1.bak").read_text(encoding="utf-8") == original
     assert store.load() == value
@@ -146,17 +146,17 @@ def test_v2_migration_preserves_implemented_fields_and_exact_backup(tmp_path):
     path.write_bytes(original)
     store = SettingsStore(path)
     settings = store.load()
-    assert settings.schema_version == 4
+    assert settings.schema_version == 6
     assert settings.push_to_talk_key == "mouse4" and not settings.enabled
     assert settings.asr_backend == "faster-whisper" and settings.transcription_timeout_seconds == 900
     assert path.with_name("settings.json.v2.bak").read_bytes() == original
-    assert json.loads(path.read_text())["schema_version"] == 4
+    assert json.loads(path.read_text())["schema_version"] == 6
     assert SettingsStore(path).load() == settings
     assert len(list(tmp_path.iterdir())) == 2
 
 
 @pytest.mark.parametrize(
-    "original", [b'{"schema_version":5}', b'{"schema_version":4,"extra":1}', b"{broken", b"\xff"]
+    "original", [b'{"schema_version":7}', b'{"schema_version":6,"extra":1}', b"{broken", b"\xff"]
 )
 def test_explicit_save_cannot_destroy_unknown_or_corrupt_file(tmp_path, original):
     path = tmp_path / "settings.json"
@@ -203,3 +203,83 @@ def test_file_changed_during_save_is_not_overwritten(tmp_path, monkeypatch):
     assert store.path.read_bytes() == b'{"schema_version":99}'
     assert store.current.language is None
     assert list(tmp_path.iterdir()) == [store.path]
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
+def test_audio_settings_migrate_with_exact_original_and_conservative_defaults(tmp_path, version):
+    path = tmp_path / "settings.json"
+    original = ('{ "schema_version": %d, "language": "uk", "enabled": false }' % version).encode()
+    path.write_bytes(original)
+    settings = SettingsStore(path).load()
+    assert settings.schema_version == 6 and settings.language == "uk" and not settings.enabled
+    assert settings.noise_suppression == "off" and settings.vad_enabled
+    assert (settings.vad_mode, settings.vad_preroll_ms, settings.vad_hangover_ms) == (1, 300, 500)
+    assert settings.auto_stop_silence_seconds == 0
+    assert path.with_name(f"settings.json.v{version}.bak").read_bytes() == original
+    assert SettingsStore(path).load() == settings
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "noise_suppression",
+        "vad_enabled",
+        "vad_mode",
+        "vad_preroll_ms",
+        "vad_hangover_ms",
+        "auto_stop_silence_seconds",
+    ],
+)
+def test_legacy_file_cannot_smuggle_new_audio_fields(tmp_path, version, field):
+    import json
+
+    path = tmp_path / "settings.json"
+    original = json.dumps({"schema_version": version, field: None}).encode()
+    path.write_bytes(original)
+    with pytest.raises(ConfigError):
+        SettingsStore(path).load()
+    assert path.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"noise_suppression": "auto"},
+        {"noise_suppression": None},
+        {"vad_enabled": 1},
+        {"vad_mode": True},
+        {"vad_mode": -1},
+        {"vad_mode": 4},
+        {"vad_mode": 1.5},
+        {"vad_preroll_ms": 199},
+        {"vad_preroll_ms": 401},
+        {"vad_preroll_ms": 250.5},
+        {"vad_hangover_ms": 299},
+        {"vad_hangover_ms": 1001},
+        {"vad_hangover_ms": True},
+        {"auto_stop_silence_seconds": 1.4},
+        {"auto_stop_silence_seconds": 10.1},
+        {"auto_stop_silence_seconds": True},
+        {"auto_stop_silence_seconds": float("nan")},
+        {"auto_stop_silence_seconds": float("inf")},
+    ],
+)
+def test_audio_fields_reject_invalid_types_and_ranges(fields):
+    with pytest.raises(ConfigError):
+        Settings(**fields)
+
+
+def test_audio_settings_roundtrip(tmp_path):
+    store = SettingsStore(tmp_path / "settings.json")
+    settings = Settings(
+        noise_suppression="strong",
+        vad_enabled=False,
+        vad_mode=3,
+        vad_preroll_ms=400,
+        vad_hangover_ms=1000,
+        auto_stop_silence_seconds=2.5,
+    )
+    store.save(settings)
+    assert SettingsStore(store.path).load() == settings

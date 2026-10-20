@@ -97,7 +97,7 @@ def test_overlay_status_focus_and_disable(tmp_path):
         assert runtime.overlay.isVisible()
         runtime.overlay._expiry.timeout.emit()
         runtime.refresh()
-        assert not runtime.overlay.isVisible()  # polling must not resurrect an expired error
+        assert not runtime.overlay.isVisible()
     finally:
         runtime.close()
         target.close()

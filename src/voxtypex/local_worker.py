@@ -1,9 +1,9 @@
-"""Native SDK, VAD and audio buffers belong exclusively to the spawned worker."""
-
 import os
 import sys
 import traceback
+from dataclasses import replace
 from pathlib import Path
+from time import process_time
 
 from .interfaces import TranscriptionResult
 
@@ -53,8 +53,7 @@ class LocalRuntime:
         self._dll_directory = os.add_dll_directory(str(directory)) if os.name == "nt" else None
         import transcribe_cpp as tc
 
-        # Native callback strings may contain inference content. Keep native status
-        # exceptions and stack locations, never persist arbitrary native messages.
+        # Native errors may contain transcripts; log only type and stack locations.
         tc.set_log_callback(None)
         self.model = tc.Model(source, backend="cpu")
         self.session = self.model.session(n_threads=min(4, os.cpu_count() or 1))
@@ -70,8 +69,7 @@ class LocalRuntime:
         try:
             return self.session.run(samples, language=language, timestamps="none").text.strip()
         except tc.OutputTruncated:
-            # Discard the incomplete hypothesis; retranscribe disjoint halves.
-            # No partial prefix can be inserted or duplicated.
+            # Discard partial text before retranscribing disjoint halves.
             if depth >= 4 or len(samples) < 16000:
                 raise
             middle = len(samples) // 2
@@ -128,6 +126,7 @@ def run_local_worker(connection, cache_dir, model_id):
         )
         while True:
             request_id, audio, language = connection.recv()
+            cpu_started = process_time()
             try:
                 result = runtime.transcribe(audio, language)
             except Exception as exc:
@@ -141,7 +140,7 @@ def run_local_worker(connection, cache_dir, model_id):
                 result = TranscriptionResult(
                     error=f"Local ASR failed ({type(exc).__name__})", error_code="local-asr"
                 )
-            connection.send((request_id, "result", result))
+            connection.send((request_id, "result", replace(result, cpu_time=process_time() - cpu_started)))
             del audio, result
     except (EOFError, BrokenPipeError):
         pass

@@ -5,6 +5,7 @@ from threading import Event, Thread
 from time import monotonic
 
 from .interfaces import (
+    EngineCapabilities,
     OperationCancelled,
     OperationContext,
     OperationTimeout,
@@ -27,6 +28,8 @@ class WorkerTimeout(TimeoutError):
 
 
 class FasterWhisperEngine:
+    capabilities = EngineCapabilities(batch_preview=True)
+
     def __init__(self, cache_dir, model="small", model_path=None):
         self.cache_dir = str(cache_dir)
         self.model = model
@@ -102,7 +105,7 @@ class FasterWhisperEngine:
                         raise WorkerFailed("Invalid STT worker message")
                     request_id, kind, value = message
                     if request_id != self._ipc_request_id:
-                        continue  # Never apply a delayed result/phase to a newer request.
+                        continue  # Ignore stale worker messages.
                     if kind == "result":
                         if not isinstance(value, TranscriptionResult):
                             raise WorkerFailed("Invalid STT worker result")
@@ -136,7 +139,6 @@ class FasterWhisperEngine:
         context: OperationContext | None = None,
         progress: ProgressSink | None = None,
     ):
-        # Single owner: the pipeline serializes requests; hooks only set Events.
         self._operation, self._progress_sink = context, progress
         self._ipc_request_id = next(self._request_ids)
         try:
@@ -187,8 +189,7 @@ class FasterWhisperEngine:
                 raise
 
     def _send_audio(self, audio, language):
-        # A large clip can fill the pipe while the child is starting or stuck.
-        # Keep the owner cancellable even before _receive() is reached.
+        # Use a sender thread so a full pipe cannot block cancellation.
         done = Event()
         failures = []
         connection = self._connection
@@ -198,8 +199,7 @@ class FasterWhisperEngine:
             try:
                 connection.send((request_id, audio, language))
             except Exception as exc:
-                # Do not retain the sender traceback: it owns Pickler's exported
-                # BytesIO view and otherwise forms a cycle with this result list.
+                # Sender tracebacks retain Pickler's BytesIO view; store only the error type.
                 failures.append(WorkerFailed(f"Audio transfer failed ({type(exc).__name__}): {exc}"))
             finally:
                 done.set()
@@ -213,7 +213,7 @@ class FasterWhisperEngine:
                 if timed_out:
                     raise WorkerTimeout("STT timeout sending audio")
             except (OperationCancelled, OperationTimeout, WorkerTimeout):
-                # Killing the reader unblocks a pending Windows pipe write.
+                # Stop the reader first to unblock a pending Windows pipe write.
                 self._dispose()
                 sender.join(timeout=2)
                 if sender.is_alive():
@@ -225,11 +225,9 @@ class FasterWhisperEngine:
         return True
 
     def cancel(self):
-        # Called from UI shutdown: the owning worker performs termination/join.
         self._cancelled.set()
 
     def release_idle(self, idle_seconds=180.0):
-        # RecordingService calls this on the same owner thread between requests.
         if self._process is not None and monotonic() - self._last_used >= idle_seconds:
             self._dispose()
 
@@ -241,12 +239,10 @@ class FasterWhisperEngine:
                 self._process.join(timeout=2)
                 if self._process.is_alive():
                     self._process.kill()
-                    # TerminateProcess is asynchronous on Windows, especially
-                    # while a native runtime finishes outstanding I/O.
+                    # TerminateProcess may return before native I/O cleanup finishes.
                     self._process.join(timeout=5)
                 if self._process.is_alive():
-                    # Retain the handle so cleanup can be retried. Process.close
-                    # would raise ValueError and lose the actionable failure.
+                    # Keep the handle so cleanup can be retried.
                     logger.error("STT worker did not exit after forced termination")
                     raise WorkerFailed("STT worker did not exit after forced termination")
                 self._process.close()

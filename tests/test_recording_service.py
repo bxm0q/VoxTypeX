@@ -108,7 +108,7 @@ def test_release_while_device_opens_and_busy_press(service):
     assert service.recorder.opening.wait(1)
     service.released()
     assert not service.recorder.held.is_set()
-    service.pressed()  # rejected while opening/closing the previous recording
+    service.pressed()
     service.released()
     service.recorder.finish_open.set()
     wait_for(lambda: service.recorder.stopping.is_set() and not service._busy)
@@ -126,6 +126,64 @@ def test_short_threshold(service, samples, accepted):
     assert service.completed_count == int(accepted)
 
 
+def test_confirmed_short_speech_is_not_discarded_by_legacy_minimum(service):
+    service.recorder.clip = AudioClip(b'\x10\x00' * 1600, 16000, speech_detected=True)
+    service.pressed()
+    wait_for(lambda: service.controller.state == AppState.RECORDING)
+    service.released()
+    wait_for(lambda: not service._busy)
+    assert service.completed_count == 1
+
+
+def test_auto_stop_releases_once_and_requires_a_new_key_edge(service):
+    service.recorder.auto_stopped = False
+    service.pressed()
+    wait_for(lambda: service.controller.state == AppState.RECORDING)
+    service.recorder.auto_stopped = True
+    wait_for(lambda: service.completed_count == 1 and not service._busy)
+    assert not service.recorder.held.is_set()
+    service.released()
+    wait_for(lambda: service._commands.empty())
+    assert service.completed_count == 1
+    service.recorder.auto_stopped = False
+    service.pressed()
+    wait_for(lambda: service.controller.state == AppState.RECORDING)
+    service.released()
+    wait_for(lambda: service.completed_count == 2)
+
+
+def test_ptt_stays_gated_until_explicit_microphone_rebind_completes(service):
+    configured, resume, rebound = Event(), Event(), Event()
+    original_apply = service._apply_settings
+    original_start = service.recorder.start
+    def apply(value, revision):
+        original_apply(value, revision)
+        configured.set()
+        assert resume.wait(2)
+    def start(held):
+        if not rebound.is_set():
+            raise RuntimeError('Stale microphone pin')
+        original_start(held)
+    service._apply_settings = apply
+    service.recorder.start = start
+    service.recorder.reset_default_device = rebound.set
+    try:
+        service.update_settings(replace(service.settings, noise_suppression='moderate'))
+        service.request_microphone_rebind()
+        assert configured.wait(1)
+        service.pressed()
+        resume.set()
+        wait_for(rebound.is_set)
+        assert service.controller.state is AppState.IDLE
+        service.released()
+        service.pressed()
+        wait_for(lambda: service.controller.state is AppState.RECORDING)
+        service.released()
+        wait_for(lambda: service.completed_count == 1)
+    finally:
+        resume.set()
+
+
 def test_busy_during_stop_ignores_press_until_next_edge(service):
     service.recorder.finish_stop.clear()
     service.pressed()
@@ -135,7 +193,7 @@ def test_busy_during_stop_ignores_press_until_next_edge(service):
     service.pressed()
     service.recorder.finish_stop.set()
     wait_for(lambda: not service._busy)
-    service.pressed()  # auto-repeat of the ignored press must not start a stream
+    service.pressed()
     assert [n for n, _ in service.recorder.calls].count("start") == 1
     service.released()
     service.pressed()
@@ -416,7 +474,7 @@ def test_disabled_and_settings_capture_gate_block_recording(service):
     service.set_settings_open(True)
     service.pressed()
     service.set_settings_open(False)
-    service.pressed()  # A held assignment key must not become a fresh PTT.
+    service.pressed()
     assert not service.recorder.opening.is_set()
     service.released()
     service.pressed()
@@ -556,7 +614,7 @@ def test_repeated_release_and_cancel_commands_never_duplicate_insertion(service)
         service.released()
     stt.release.set()
     wait_for(lambda: not service._busy)
-    # Wait behind all queued releases, not merely behind the first result.
+    # Wait for all queued releases, not just the first result.
     service.update_settings(replace(service.settings, language="uk"))
     wait_for(lambda: not service._settings_pending)
     assert service.inserter.calls == ["Привіт!"] and stt.calls == 1
@@ -606,7 +664,7 @@ def test_late_pipeline_success_never_reaches_inserter(service, monkeypatch):
     class Late(FakeTranscriber):
         def run(self, audio, context, progress):
             clock[0] = 2.0
-            return self.result  # Deliberately non-cooperative external implementation.
+            return self.result
 
     service.transcriber = Late(service)
     service.inserter = FakeInserter(service)

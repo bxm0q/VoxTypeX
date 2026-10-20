@@ -1,4 +1,4 @@
-﻿param([string]$PythonPath = "", [string]$EnvironmentPath = "", [switch]$SkipNativeBuild)
+param([string]$PythonPath = "", [string]$EnvironmentPath = "", [switch]$SkipNativeBuild)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
@@ -24,11 +24,11 @@ Invoke-Python -Arguments @("-m", "ruff", "check", "src", "tests", "packaging", "
 Invoke-Python -Arguments @("-m", "pytest", "-q")
 $previousPath = $env:PATH
 try {
-    # Avoid collecting unrelated DLLs from IDEs, multimedia tools and other PATH entries.
+    # Keep unrelated DLLs off the build PATH.
     $env:PATH = "$(Split-Path -Parent $buildPython);$env:SystemRoot\System32;$env:SystemRoot"
     Invoke-Python -Arguments @("-m", "PyInstaller", "--noconfirm", "--clean", "packaging/VoxTypeX.spec")
 } finally { $env:PATH = $previousPath }
 Invoke-Python -Arguments @("scripts/release_files.py")
 Write-Output "Built: $root\dist\VoxTypeX\VoxTypeX.exe"
-Write-Output "Release: $root\dist\VoxTypeX-0.1.2-win-x64.zip"
+Write-Output "Release: $root\dist\VoxTypeX-0.1.3-win-x64.zip"
 Write-Output "Run scripts/smoke.ps1 with a speech WAV before publishing."

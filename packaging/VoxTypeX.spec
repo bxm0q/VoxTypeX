@@ -1,12 +1,16 @@
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_data_files, collect_delvewheel_libs_directory, collect_dynamic_libs, copy_metadata,
+)
 
 root = Path(SPECPATH).parent
 datas = collect_data_files("faster_whisper") + copy_metadata("faster-whisper", recursive=True)
 for package in ("PySide6", "PySide6_Essentials", "PySide6_Addons", "shiboken6", "sounddevice", "pynput", "comtypes"):
     datas += copy_metadata(package)
 binaries = collect_dynamic_libs("ctranslate2")
+datas, binaries = collect_delvewheel_libs_directory('pywebrtc_audio', datas=datas, binaries=binaries)
+datas += copy_metadata('pywebrtc-audio')
 native = root / ".local" / "native" / "transcribe-cpp"
 if not (native / "ggml-cpu-x64.dll").is_file():
     raise RuntimeError("Run scripts/build-native.ps1 with the build Python before freezing")
@@ -19,9 +23,11 @@ datas += copy_metadata("transcribe-cpp", recursive=True)
 a = Analysis(
     [str(root / "packaging" / "launcher.py")],
     pathex=[str(root / "src"), str(root / "packaging")],
+    hookspath=[str(root / "packaging" / "hooks")],
     binaries=binaries,
     datas=datas,
-    hiddenimports=["pynput.keyboard._win32", "pynput.mouse._win32", "comtypes.client", "hf_xet", "transcribe_cpp"],
+    hiddenimports=["pynput.keyboard._win32", "pynput.mouse._win32", "comtypes.client", "hf_xet", "transcribe_cpp",
+                   "pywebrtc_audio", "pywebrtc_audio._webrtc_audio", "webrtcvad", "_webrtcvad"],
     excludes=["pytest", "ruff", "tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"],
     noarchive=False,
 )

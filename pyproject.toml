@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voxtypex"
-version = "0.1.2"
+version = "0.1.3"
 description = "Windows push-to-talk voice input"
 requires-python = ">=3.12"
-dependencies = ["PySide6==6.11.2", "sounddevice==0.5.6", "pynput==1.8.2", "faster-whisper==1.2.1", "numpy>=2,<3", "comtypes==1.4.16"]
+dependencies = ["PySide6==6.11.2", "sounddevice==0.5.6", "pynput==1.8.2", "faster-whisper==1.2.1", "numpy>=2,<3", "comtypes==1.4.16", "pywebrtc-audio==0.2.0", "webrtcvad-wheels==2.0.14.post1"]
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1", "ruff==0.16.8"]
@@ -33,5 +33,5 @@ extend-exclude = [".local", ".venv"]
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.per-file-ignores]
-# Select Qt's headless platform before importing its widgets.
+# Set the Qt platform before importing widgets.
 "tests/test_ui.py" = ["E402"]

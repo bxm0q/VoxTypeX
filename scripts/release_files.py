@@ -1,12 +1,13 @@
-"""Produce clean release archives and third-party notices from explicit input paths."""
-
+import argparse
 import hashlib
 import importlib.metadata as metadata
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
-DIST = ROOT / "dist"
+parser = argparse.ArgumentParser()
+parser.add_argument("--dist-dir", type=Path, default=ROOT / "dist")
+DIST = parser.parse_args().dist_dir.resolve()
 APP = DIST / "VoxTypeX"
 
 runtime_packages = (
@@ -29,9 +30,11 @@ runtime_packages = (
     "cffi",
     "transcribe-cpp",
     "transcribe-cpp-native",
+    "pywebrtc-audio",
+    "webrtcvad-wheels",
 )
 notices = [
-    "VoxTypeX 0.1.2 — third-party components",
+    "VoxTypeX 0.1.3 — third-party components",
     "License texts and metadata are preserved in _internal/*.dist-info.",
     "Qt/PySide DLLs are dynamically linked and remain separate in this onedir distribution.",
     "Upstream Qt/PySide source: https://code.qt.io/cgit/pyside/pyside-setup.git/",
@@ -53,6 +56,8 @@ for name in (
     "LOCAL_MODELS.md",
     "ASR_BENCHMARK.md",
     "ASR_BENCHMARK_RESULTS.json",
+    "AUDIO_PIPELINE.md",
+    "TRANSCRIPT_PREVIEW.md",
 ):
     (APP / "docs" / name).write_bytes((ROOT / "docs" / name).read_bytes())
 (APP / "docs/licenses").mkdir(exist_ok=True)
@@ -72,7 +77,7 @@ def archive(path, files, base):
 application_files = [APP / name for name in ("VoxTypeX.exe", "README.md", "THIRD_PARTY_NOTICES.txt")]
 application_files += [p for p in (APP / "docs").rglob("*") if p.is_file()]
 application_files += [p for p in (APP / "_internal").rglob("*") if p.is_file()]
-archive(DIST / "VoxTypeX-0.1.2-win-x64.zip", application_files, DIST)
+archive(DIST / "VoxTypeX-0.1.3-win-x64.zip", application_files, DIST)
 source_files = [
     ROOT / name
     for name in ("README.md", "pyproject.toml", ".gitignore", ".gitattributes", "requirements-build.lock")
@@ -88,6 +93,10 @@ source_files += [
         "ASR_BENCHMARK.md",
         "ASR_BENCHMARK_RESULTS.json",
         "ITERATION2_REPORT.md",
+        "AUDIO_PIPELINE.md",
+        "ITERATION3_REPORT.md",
+        "TRANSCRIPT_PREVIEW.md",
+        "ITERATION4_REPORT.md",
     )
 ]
 source_files += [ROOT / "src/voxtypex/model_catalog.json", ROOT / "packaging/native-runtime.json"]
@@ -101,5 +110,5 @@ for directory in ("src/voxtypex", "scripts", "packaging"):
         and "__pycache__" not in p.parts
         and p.suffix in (".py", ".ps1", ".md", ".html", ".spec", ".iss")
     )
-archive(DIST / "VoxTypeX-0.1.2-source.zip", source_files, ROOT)
+archive(DIST / "VoxTypeX-0.1.3-source.zip", source_files, ROOT)
 print("Clean application and source archives created with SHA256")

@@ -1,1 +1,0 @@
-"""VoxTypeX application package."""

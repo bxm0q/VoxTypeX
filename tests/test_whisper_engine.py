@@ -385,8 +385,6 @@ def test_cancel_during_cuda_failure_does_not_start_a_fallback_process(tmp_path, 
 
 
 class SlowExitProcess:
-    """Windows termination may return before native I/O cleanup has finished."""
-
     pid = 123
 
     def __init__(self, *, can_exit=True):
